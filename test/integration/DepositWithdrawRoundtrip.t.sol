@@ -4,30 +4,57 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {AccountManager} from "../../src/AccountManager.sol";
 import {USDCVault, IERC20} from "../../src/USDCVault.sol";
+import {MarketRegistry} from "../../src/MarketRegistry.sol";
 import {IAccountManager} from "../../src/interfaces/IAccountManager.sol";
+import {IMarketRegistry} from "../../src/interfaces/IMarketRegistry.sol";
 import {MockUSDC} from "../USDCVault.t.sol";
+import {MockPriceFeed} from "../MockPriceFeed.sol";
 
-/// @notice End-to-end v0.1 integration: register an account, deposit USDC,
-///         withdraw USDC. Proves the two shipped primitives work together
-///         as a usable system today, before OrderBook/SettlementEngine land.
-///         An Arc builder forking v0.1 has a working USDC vault keyed on
-///         permissionless account ids from day one.
+/// @notice End-to-end v0.1 integration: register a market, register an
+///         account, deposit USDC, read live mark price, withdraw USDC.
+///         Proves the three shipped primitives compose into a usable
+///         system today, before OrderBook/SettlementEngine land. An Arc
+///         builder forking v0.1 has a working USDC vault keyed on
+///         permissionless accounts + an admin-curated market registry
+///         with live oracle reads, ready to plug an OrderBook in at v0.4.
 contract DepositWithdrawRoundtripTest is Test {
     MockUSDC internal usdc;
     AccountManager internal accounts;
     USDCVault internal vault;
+    MarketRegistry internal markets;
+    MockPriceFeed internal btcFeed;
 
     address internal trader = address(0xCAFE);
+    address internal admin = address(0xAD1);
 
     function setUp() public {
         usdc = new MockUSDC();
         accounts = new AccountManager();
         vault = new USDCVault(IERC20(address(usdc)), IAccountManager(address(accounts)));
+        markets = new MarketRegistry(admin);
+        btcFeed = new MockPriceFeed(65000_00000000); // $65k in 1e8
 
         usdc.mint(trader, 500_000_000); // 500 USDC
     }
 
     function test_v01_endToEndRoundtrip() public {
+        // 0. Admin curates the BTC market. Markets are admin-gated in v0.3;
+        //    permissionless registration ships in v0.9 with bond + slashing.
+        IMarketRegistry.Market memory btc = IMarketRegistry.Market({
+            symbol: "BTC",
+            priceFeed: address(btcFeed),
+            initialMarginBps: 1000,
+            maintMarginBps: 500,
+            maxLeverage: 10,
+            tickSize: 100,
+            lotSize: 1e15,
+            paused: false
+        });
+        vm.prank(admin);
+        uint256 btcMarketId = markets.registerMarket(btc);
+        assertEq(btcMarketId, 1, "first market is id 1");
+        assertEq(markets.markPrice(btcMarketId), 65000_00000000, "live oracle price");
+
         // 1. Permissionless account registration.
         vm.prank(trader);
         uint256 accountId = accounts.registerAccount();
@@ -67,6 +94,13 @@ contract DepositWithdrawRoundtripTest is Test {
         // 5. Account row persists post-withdrawal so the trader can
         //    re-deposit later without re-registering.
         assertEq(accounts.accountIdOf(trader), accountId, "account row persists");
+
+        // 6. Market also persists; its price updates when the oracle moves.
+        //    Once OrderBook + SettlementEngine ship in v0.4/v0.5, this
+        //    market is what new orders reference.
+        btcFeed.setPrice(70000_00000000);
+        assertEq(markets.markPrice(btcMarketId), 70000_00000000, "market tracks oracle updates");
+        assertEq(markets.market(btcMarketId).symbol, "BTC", "market metadata persists");
     }
 
     function test_v01_marginHooksRevertUntilSettlementBound() public {

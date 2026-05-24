@@ -43,16 +43,17 @@ ArcPerpRef
 
 ## Status
 
-**v0.1 shipping today.** Two working primitives plus the full interface surface for the rest:
+**v0.1 shipping today.** Three working primitives plus the full interface surface for the rest:
 
 - `AccountManager.sol` — permissionless EOA registration (5 unit + fuzz tests)
-- `USDCVault.sol` — per-account USDC collateral with deposit/withdraw + margin hooks gated until SettlementEngine binds (20+ unit + fuzz tests)
-- `OrderTypes.sol` — EIP-712 `Order` schema under domain `"ArcPerpRef v1"`
-- Interface stubs for the rest: `IMarketRegistry`, `IOrderBook`, `ISettlement` — frozen API surface so v0.3–v0.5 implementations don't churn downstream
-- `script/Deploy.s.sol` wiring AccountManager + USDCVault end-to-end with on-chain manifest emission
-- Integration test (`test/integration/DepositWithdrawRoundtrip.t.sol`) proving the full register → deposit → withdraw flow works against the two shipped contracts
-- GitHub Actions CI (`.github/workflows/solidity.yml`) running `forge build + test + fmt` on every push
-- ADRs 0001 (batched end-of-block settlement) and 0002 (permissionless account onboarding) explaining the design rationale
+- `USDCVault.sol` — per-account USDC collateral with deposit/withdraw + margin hooks gated until SettlementEngine binds (20+ unit + fuzz tests + handler-driven invariant fuzz)
+- `MarketRegistry.sol` — admin-curated perp market catalogue with risk params + pluggable `IPriceFeed` oracle adapter (`MockPriceFeed` for tests; Pyth adapter lands at deploy time) (20+ unit + fuzz tests)
+- `OrderTypes.sol` — EIP-712 `Order` schema under domain `"ArcPerpRef v1"` with frozen-typehash + sign/recover tests
+- Interface stubs for the rest: `IOrderBook`, `ISettlement`, `IPriceFeed` — frozen API surface so v0.4–v0.6 implementations don't churn downstream
+- `script/Deploy.s.sol` wiring AccountManager + USDCVault + MarketRegistry end-to-end with on-chain manifest emission
+- Integration test (`test/integration/DepositWithdrawRoundtrip.t.sol`) proving register market → register account → deposit → mark-price read → withdraw end-to-end against the three shipped contracts
+- GitHub Actions CI (`.github/workflows/solidity.yml`) running `forge build + test + fmt + gas-report` on every push
+- ADRs 0001 (batched end-of-block settlement), 0002 (permissionless account onboarding), 0003 (USDCVault design)
 
 Read `ARCHITECTURE.md` for the system-wide design, the version roadmap (`v0.2` through `v0.10`, with `v1.0` reserved for the post-production-hardening graduation), and Mermaid diagrams of every key flow.
 
