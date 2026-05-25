@@ -6,7 +6,7 @@ This runbook deploys the three v0.1 contracts (`AccountManager`, `USDCVault`, `M
 
 - Circle account with access to Smart Contract Platform.
 - A Circle Developer-Controlled Wallet on Arc Testnet with some testnet gas.
-- The deploy artifacts bundle: download from the latest green `solidity` workflow run on GitHub Actions. Look for the `tangent-deploy-artifacts` artifact at the bottom of the run page.
+- The deploy artifacts bundle: download from the latest green `solidity` workflow run on GitHub Actions (https://github.com/JagritGumber/arc-perp-reference/actions/workflows/solidity.yml). Look for the `tangent-deploy-artifacts` artifact at the bottom of the run page.
 
 The bundle contains:
 
