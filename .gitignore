@@ -5,6 +5,9 @@ broadcast/
 **/broadcast/*/run-latest.json
 **/broadcast/*/*/run-latest.json
 
+# Locally-downloaded CI deploy artifacts (the canonical copy lives in the workflow run)
+deploy-artifacts-local/
+
 # Foundry deps
 lib/
 
