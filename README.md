@@ -28,7 +28,7 @@ Four reusable primitives that no current `circlefin/arc-*` repository covers:
 
 3. **Public EIP-712 order schema** (`Order(accountId, marketId, isBuy, limitPrice, size, nonce, expiry, reduceOnly)`) under EIP-712 domain `"Tangent v1"`. External agent builders can sign orders the matcher will accept without any permissioned binding step.
 
-4. **Permissionless `settleBatch` entry point.** Anyone can call it with a valid match set. Margin and liquidation checks enforced on-chain. No `SETTLEMENT_ROLE`, no closed engine.
+4. **Permissionless matching path through `tick()`.** Anyone can call `OrderBook.tick()`; the book matches deterministically and calls the bound `SettlementEngine` atomically. There is no external matcher role, and direct settlement is restricted to the book so fills and book state cannot drift.
 
 Plus the supporting infrastructure: standard ERC-20 USDC vault for collateral, Pyth or Chainlink price feeds on Arc for marks, on-chain liquidation keepers with slashing.
 
@@ -37,8 +37,8 @@ Plus the supporting infrastructure: standard ERC-20 USDC vault for collateral, P
 ```
 Tangent
 ├── AccountManager.sol        Permissionless account registration; balance + positions per account
-├── OrderBook.sol             EIP-712 order submission; in-memory CLOB during block       (v0.4)
-├── SettlementEngine.sol      Permissionless settleBatch; margin + liquidation enforcement (v0.5)
+├── OrderBook.sol             EIP-712 order submission; bounded on-chain CLOB
+├── SettlementEngine.sol      Position accounting, margin locking, realized PnL
 ├── USDCVault.sol             ERC-20 collateral vault; transparent per-account accounting
 ├── MarketRegistry.sol        Admin-curated markets in v0.3; permissionless in v0.9
 ├── LiquidationKeeper.sol     Bot-callable liquidation; slashing for invalid calls        (v0.6)
@@ -47,18 +47,20 @@ Tangent
 
 ## Status
 
-**v0.1 live on Arc Testnet** (see addresses below). Three working primitives plus the full interface surface for the rest:
+**v0.1 live on Arc Testnet** (see addresses below). **v0.5 OrderBook + SettlementEngine implemented locally** and ready for the next deployment. Current code ships:
 
 - `AccountManager.sol`: permissionless EOA registration (5 unit + fuzz tests)
-- `USDCVault.sol`: per-account USDC collateral with deposit/withdraw + margin hooks gated until SettlementEngine binds (20+ unit + fuzz tests + handler-driven invariant fuzz)
+- `USDCVault.sol`: per-account USDC collateral with deposit/withdraw + margin hooks gated until the immutable settlement binder binds SettlementEngine once (20+ unit + fuzz tests + handler-driven invariant fuzz)
 - `MarketRegistry.sol`: admin-curated perp market catalogue with risk params + pluggable `IPriceFeed` oracle adapter (`MockPriceFeed` for tests; Pyth adapter lands at deploy time) (20+ unit + fuzz tests)
+- `OrderBook.sol`: EIP-712 signed order submission, account-owner recovery, nonce protection, market tick/lot validation, owner cancellation, expiry sweep, deterministic price-time matching, partial fills, self-trade skip, pause-aware matching, `Matched` events, bounded live-order count, stored order metadata, and one-shot settlement-engine binding
+- `SettlementEngine.sol`: bound-book settlement, per-account/per-market positions, isolated initial-margin locking, proportional margin release, realized PnL application, reduce-only enforcement, paused-market defense, and atomic batch revert
 - `OrderTypes.sol`: EIP-712 `Order` schema under domain `"Tangent v1"` with frozen-typehash + sign/recover tests
-- Interface stubs for the rest: `IOrderBook`, `ISettlement`, `IPriceFeed`, a frozen API surface so v0.4 through v0.6 implementations don't churn downstream
-- `script/Deploy.s.sol` wiring AccountManager + USDCVault + MarketRegistry end-to-end with on-chain manifest emission
+- Interface stubs for the rest: `IPriceFeed`, plus the public `IOrderBook` / `ISettlement` surface used by the local settlement path
+- `script/Deploy.s.sol` wiring AccountManager + USDCVault + MarketRegistry + OrderBook + SettlementEngine end-to-end with one-shot vault/book binding
 - Integration test (`test/integration/DepositWithdrawRoundtrip.t.sol`) proving register market → register account → deposit → mark-price read → withdraw end-to-end against the three shipped contracts
 - GitHub Actions CI (`.github/workflows/solidity.yml`) running `forge build + test + fmt + gas-report` on every push
 - ADRs 0001 (batched end-of-block settlement), 0002 (permissionless account onboarding), 0003 (USDCVault design)
-- Rust workspace at [`rust/`](./rust/) with the [`tangent-sdk`](./rust/tangent-sdk/) crate shipping the canonical EIP-712 `Order` + `DomainSeparatorInput` types so downstream agents (Selbo, CapitalArc, future Arc-native agents) target a stable type today, before the on-chain `OrderBook` lands at v0.4. Future crates (`tangent-keeper`, `tangent-indexer`, `tangent-matcher`) reserved in the workspace manifest, landing at v0.8 / v0.9 / v0.10 respectively. Rust CI (`cargo fmt + clippy + check + test + run example`) on every push that touches `rust/**`.
+- Rust workspace at [`rust/`](./rust/) with the [`tangent-sdk`](./rust/tangent-sdk/) crate shipping the canonical EIP-712 `Order` + `DomainSeparatorInput` types so downstream agents (Selbo, CapitalArc, future Arc-native agents) target the same order shape as the on-chain `OrderBook`. Future crates (`tangent-keeper`, `tangent-indexer`, `tangent-matcher`) reserved in the workspace manifest, landing at v0.8 / v0.9 / v0.10 respectively. Rust CI (`cargo fmt + clippy + check + test + run example`) on every push that touches `rust/**`.
 
 Read `ARCHITECTURE.md` for the system-wide design, the version roadmap (`v0.2` through `v0.10`, with `v1.0` reserved for the post-production-hardening graduation), and Mermaid diagrams of every key flow.
 
@@ -94,11 +96,11 @@ The three primitives are permissionless and live. Anyone can:
 - Call `USDCVault.deposit(accountId, amount)` after approving USDC, and `USDCVault.withdraw(accountId, amount)` to retrieve their balance.
 - Read `MarketRegistry.market(marketId)` once the admin (the deployer wallet, by design at v0.1) registers markets. Permissionless market creation lands at v0.9.
 
-The `SettlementEngine` is unbound in v0.1 (it lands at v0.5). Until then, the margin / lock / PnL hooks on `USDCVault` revert if called; deposits and withdrawals work without binding. This is intentional: the deploy proves the account + collateral surface, and the v0.4 `OrderBook` + v0.5 `SettlementEngine` will bind through the existing `ISettlement` interface without churn to anything shipped.
+The live v0.1 deployment does not include the local v0.5 `OrderBook` or `SettlementEngine`. Until a new deployment binds those contracts, the margin / lock / PnL hooks on the live `USDCVault` revert if called; deposits and withdrawals work without binding. The local v0.5 deploy script now performs the full one-shot binding for new forks.
 
 ## Deploy your own fork
 
-For forks deploying their own instance of the three primitives, the canonical path is Foundry:
+For forks deploying their own instance of the Tangent primitives, the canonical path is Foundry:
 
 ```bash
 forge script script/Deploy.s.sol --rpc-url $ARC_RPC --broadcast --verify
@@ -121,13 +123,14 @@ See `docs/adr/` for the design rationale behind:
 - **Lighter Protocol** (docs.lighter.xyz): off-chain matching + on-chain ZK proof verification. Right long-term scaling path, deferred to v1.2.
 - **Hyperliquid sub-accounts pattern**: master account + N sub-accounts per trader, isolated margin per sub-account. Optional in v1.0.
 
-## What's deferred past v0.1
+## What's deferred past v0.5
 
 - Permissionless market creation (admin-curated in MVP).
+- Liquidations and maintenance-margin enforcement.
+- Funding payments.
 - ZK-proven off-chain matching (Lighter-style).
 - ERC-4337 SCA account model.
 - Cross-margin across markets (start with isolated margin per market).
-- Funding rate auctions (start with simple TWAP-based funding).
 - Frontend (this is a reference implementation; consumers build their own UIs).
 
 ## Composability commitments
@@ -136,6 +139,7 @@ Every primitive in this repo is designed to be picked up and reused by other Arc
 
 - `AccountManager` can be forked for any application needing permissionless account registration without custodian binding.
 - The `OrderBook` matching engine works for any orderbook market on Arc, not just perpetuals.
+- The `SettlementEngine` position/margin core is reusable for isolated-margin leveraged products.
 - The batched end-of-block settlement pattern is generalizable to any high-MEV-risk venue on Arc.
 - `LiquidationKeeper` with slashing is reusable for any leveraged product.
 - The EIP-712 `Order` schema is meant to be a canonical baseline future Arc perp builders can extend rather than reinvent.

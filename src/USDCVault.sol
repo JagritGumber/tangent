@@ -22,8 +22,9 @@ interface IERC20 {
 ///         Contrast with Shapeshifter's USDCCollateralVault: that vault binds
 ///         collateral to Fireblocks-custodied accounts via off-chain
 ///         provisioning. This vault is non-custodial - the only contract that
-///         can lock or release margin is the SettlementEngine bound once at
-///         deploy via `bindSettlementEngine`. There is no admin upgrade path.
+///         can lock or release margin is the SettlementEngine bound once by
+///         the immutable settlementBinder. There is no admin upgrade path
+///         after the one-shot binding.
 ///
 /// @dev    v0.1 ships the deposit/withdraw path fully working. The margin
 ///         hooks (lockMargin/releaseMargin/applyPnL) revert until the
@@ -36,6 +37,11 @@ contract USDCVault is IUSDCVault {
 
     /// @notice The AccountManager that owns the canonical `ownerOf` mapping.
     IAccountManager public immutable accounts;
+
+    /// @notice Address permitted to perform the one-shot settlement-engine
+    ///         binding. Usually the deployment EOA or deployment coordinator.
+    ///         Has no power after settlementEngine is set.
+    address public immutable settlementBinder;
 
     /// @notice The SettlementEngine permitted to call margin hooks. Set once
     ///         via `bindSettlementEngine`; zero address until then.
@@ -54,6 +60,7 @@ contract USDCVault is IUSDCVault {
     error TransferFailed();
     error SettlementEngineNotBound();
     error OnlySettlementEngine(address caller);
+    error OnlySettlementBinder(address caller, address binder);
     error SettlementEngineAlreadyBound(address current);
     error ZeroAmount();
     error ZeroAddress();
@@ -63,12 +70,14 @@ contract USDCVault is IUSDCVault {
         if (address(_accounts) == address(0)) revert ZeroAddress();
         usdc = _usdc;
         accounts = _accounts;
+        settlementBinder = msg.sender;
     }
 
     /// @notice One-shot wiring of the SettlementEngine. Reverts on second
     ///         call so the binding is immutable in practice without an admin
-    ///         upgrade path. Called by the v0.7 Deploy script.
+    ///         upgrade path. Called by the deployment coordinator.
     function bindSettlementEngine(address engine) external {
+        if (msg.sender != settlementBinder) revert OnlySettlementBinder(msg.sender, settlementBinder);
         if (engine == address(0)) revert ZeroAddress();
         if (settlementEngine != address(0)) revert SettlementEngineAlreadyBound(settlementEngine);
         settlementEngine = engine;
@@ -154,7 +163,9 @@ contract USDCVault is IUSDCVault {
             uint256 loss = uint256(-pnl);
             uint256 free = _free[accountId];
             if (loss <= free) {
-                unchecked { _free[accountId] = free - loss; }
+                unchecked {
+                    _free[accountId] = free - loss;
+                }
             } else {
                 uint256 remainder = loss - free;
                 _free[accountId] = 0;

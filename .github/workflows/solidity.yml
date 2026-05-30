@@ -47,6 +47,7 @@ jobs:
           forge flatten src/AccountManager.sol --output flat/AccountManager.flat.sol
           forge flatten src/USDCVault.sol --output flat/USDCVault.flat.sol
           forge flatten src/MarketRegistry.sol --output flat/MarketRegistry.flat.sol
+          forge flatten src/OrderBook.sol --output flat/OrderBook.flat.sol
 
       - name: Bundle deploy artifacts
         run: |
@@ -55,6 +56,7 @@ jobs:
           cp out/AccountManager.sol/AccountManager.json deploy-artifacts/AccountManager.compiled.json
           cp out/USDCVault.sol/USDCVault.json deploy-artifacts/USDCVault.compiled.json
           cp out/MarketRegistry.sol/MarketRegistry.json deploy-artifacts/MarketRegistry.compiled.json
+          cp out/OrderBook.sol/OrderBook.json deploy-artifacts/OrderBook.compiled.json
 
       - name: Upload deploy artifacts
         uses: actions/upload-artifact@v4

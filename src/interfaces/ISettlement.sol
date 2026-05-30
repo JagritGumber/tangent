@@ -2,10 +2,10 @@
 pragma solidity ^0.8.26;
 
 /// @title  ISettlement
-/// @notice Permissionless settlement of matched orders. The primitive that
-///         breaks the SETTLEMENT_ROLE gate Shapeshifter's CMDT ClearingHouse
-///         enforces. Anyone can call settleBatch with a valid match set;
-///         margin, liquidation, and signature checks are enforced on-chain.
+/// @notice Settlement of matched orders produced by the bound OrderBook.
+///         System-level permissionlessness comes from OrderBook.tick(), which
+///         anyone can call; direct settlement is restricted to the book so
+///         fills and book state remain atomic.
 interface ISettlement {
     /// @notice A single matched fill between two opposing orders.
     /// @param  buyOrderHash    Hash of the buy-side order (long entry or short close).
@@ -34,11 +34,7 @@ interface ISettlement {
         uint256 price
     );
 
-    /// @notice Settle a batch of matches. Permissionless. Validates that:
-    ///         - both order hashes were emitted by the bound OrderBook in the
-    ///           current block (or last N blocks per settlement window)
-    ///         - both accounts pass margin checks at the new positions
-    ///         - neither account is in liquidation
-    ///         Reverts the whole batch on any failure.
+    /// @notice Settle a batch of matches from the bound OrderBook. Reverts the
+    ///         whole batch on any invalid match or margin failure.
     function settleBatch(Match[] calldata matches) external;
 }

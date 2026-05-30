@@ -92,9 +92,17 @@ contract USDCVaultTest is Test {
         assertEq(vault.settlementEngine(), settlementEngine);
     }
 
+    function test_bindSettlementEngine_revertsOnNonBinder() public {
+        vm.expectRevert(abi.encodeWithSelector(USDCVault.OnlySettlementBinder.selector, alice, address(this)));
+        vm.prank(alice);
+        vault.bindSettlementEngine(settlementEngine);
+    }
+
     function test_bindSettlementEngine_revertsOnSecondBind() public {
         vault.bindSettlementEngine(settlementEngine);
-        vm.expectRevert(abi.encodeWithSelector(USDCVault.SettlementEngineAlreadyBound.selector, settlementEngine));
+        vm.expectRevert(
+            abi.encodeWithSelector(USDCVault.SettlementEngineAlreadyBound.selector, settlementEngine)
+        );
         vault.bindSettlementEngine(address(0xBEEF));
     }
 
@@ -172,7 +180,9 @@ contract USDCVaultTest is Test {
         vm.prank(alice);
         vault.deposit(aliceId, 10_000_000);
         vm.expectRevert(
-            abi.encodeWithSelector(USDCVault.InsufficientFree.selector, aliceId, uint256(50_000_000), uint256(10_000_000))
+            abi.encodeWithSelector(
+                USDCVault.InsufficientFree.selector, aliceId, uint256(50_000_000), uint256(10_000_000)
+            )
         );
         vm.prank(alice);
         vault.withdraw(aliceId, 50_000_000, alice);
@@ -241,7 +251,9 @@ contract USDCVaultTest is Test {
         vault.deposit(aliceId, 10_000_000);
 
         vm.expectRevert(
-            abi.encodeWithSelector(USDCVault.InsufficientFree.selector, aliceId, uint256(50_000_000), uint256(10_000_000))
+            abi.encodeWithSelector(
+                USDCVault.InsufficientFree.selector, aliceId, uint256(50_000_000), uint256(10_000_000)
+            )
         );
         vm.prank(settlementEngine);
         vault.lockMargin(aliceId, 50_000_000);
@@ -319,7 +331,8 @@ contract USDCVaultTest is Test {
     function testFuzz_depositThenWithdrawIsConserved(uint128 depositAmt, uint128 withdrawAmt) public {
         vm.assume(depositAmt > 0);
         vm.assume(depositAmt <= 1_000_000_000); // <= mint
-        uint256 actualWithdraw = uint256(withdrawAmt) > uint256(depositAmt) ? uint256(depositAmt) : uint256(withdrawAmt);
+        uint256 actualWithdraw =
+            uint256(withdrawAmt) > uint256(depositAmt) ? uint256(depositAmt) : uint256(withdrawAmt);
         vm.assume(actualWithdraw > 0);
 
         vm.prank(alice);

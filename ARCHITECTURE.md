@@ -101,7 +101,7 @@ flowchart TB
 - The arrow from `SDK → RPC` is the only path consumers ever touch. Everything else is internal wiring.
 - `Circle Dev Wallets` sit on the signing side, never the execution side. Agents sign Orders with their dev-wallet entity secret; the signed payload travels over the SDK; the contract recovers the signer.
 - `Pyth` is read-only from the contract's perspective; it is queried at settle time and at liquidation time, never written to.
-- The `Off-chain Rust layer` has no contract privileges. Every Rust component calls public, permissionless contract entry points. That is the entire point of this reference relative to Shapeshifter's `SETTLEMENT_ROLE`-gated design.
+- The `Off-chain Rust layer` has no settlement privilege. Every Rust component calls public contract entry points such as `submitOrder`, `cancelOrder`, and `tick`; `SettlementEngine.settleBatch` is restricted to the bound `OrderBook` so fills and order-book state stay atomic.
 
 ---
 
@@ -132,27 +132,27 @@ flowchart TB
 - **Responsibility.** Per-account USDC collateral vault. Tracks free balance, locked margin, and applies realized PnL. The only contract that holds user funds.
 - **State held.** `_free[accountId] → uint256`, `_locked[accountId] → uint256`. Two slots per funded account.
 - **Public API.** User-facing: `deposit(accountId, amount)`, `withdraw(accountId, amount, to)`, `freeBalanceOf`, `lockedBalanceOf`, `totalBalanceOf`. Settlement-engine hooks (access-gated by deploy-time binding): `lockMargin`, `releaseMargin`, `applyPnL(int256)`. Events: `Deposited`, `Withdrawn`, `MarginLocked`, `MarginReleased`, `PnLApplied`.
-- **Dependencies.** USDC ERC-20 contract on Arc (immutable address bound at construction). `AccountManager` for ownership checks on `withdraw`. `SettlementEngine` bound once at deploy via `bindSettlementEngine` (one-shot, no admin upgrade path).
+- **Dependencies.** USDC ERC-20 contract on Arc (immutable address bound at construction). `AccountManager` for ownership checks on `withdraw`. `SettlementEngine` bound once by the immutable `settlementBinder` via `bindSettlementEngine` (one-shot, no admin upgrade path after binding).
 - **Trust model.** Trustless for deposit and balance reads. Keeper-dependent indirectly (margin can only be released by `SettlementEngine`, which fires from `tick()`). Withdrawal is owner-authorized via `AccountManager.ownerOf`.
 - **Forkability angle.** Self-contained ERC-20 vault. Forks can swap the collateral token (USDC → USDT, eUSD, etc) by changing one immutable constructor arg. The `lockMargin / releaseMargin / applyPnL` triad is reusable for any leveraged product, not just perps.
 
-#### OrderBook (`src/OrderBook.sol`, v0.4 target)
+#### OrderBook (`src/OrderBook.sol`, shipped locally in v0.4/v0.5)
 
-- **Responsibility.** On-chain CLOB with deterministic end-of-block batched matching. Receives EIP-712 signed orders, accumulates them during the block, walks the book on `tick()`, emits `Matched` events, hands match set to `SettlementEngine`.
-- **State held.** `_orders[orderHash] → OrderState {status, filledSize, owner, market, isBuy, limitPrice, size, expiry, reduceOnly}`. Per-market price-level FIFO queues (linked-list-of-orders per price). `_lastTickBlock` to guard against duplicate ticks.
-- **Public API.** `submitOrder(Order, signature)`, `cancelOrder(orderHash)`, `tick()`, `isLive(orderHash) → bool`. Events: `OrderSubmitted`, `OrderCancelled`, `Matched`.
-- **Dependencies.** `AccountManager` (signer recovery via `ownerOf`), `MarketRegistry` (tick/lot validation, paused check), `SettlementEngine` (handoff). EIP-712 domain `"Tangent v1"` (see `src/types/OrderTypes.sol`).
-- **Trust model.** Trustless for submit and cancel. Keeper-dependent for tick latency (anyone can tick, but a keeper is expected to call every block). The matching algorithm itself is deterministic price-time priority, with no MEV opportunity per ADR 0001.
+- **Responsibility.** On-chain CLOB with deterministic batched matching. Receives EIP-712 signed orders, accumulates them in contract state, walks the book on `tick()`, emits `Matched` events, hands match set to `SettlementEngine`.
+- **State held.** `_orders[orderHash] → RestingOrder {order, remaining, sequence, exists, live}` plus an append-only order hash log and a bounded `liveOrderCount` cap. v0.4 uses a bounded scanner for simplicity; the production target remains per-market price-level FIFO queues.
+- **Public API.** `submitOrder(Order, signature)`, `cancelOrder(orderHash)`, `tick()`, `isLive(orderHash) → bool`, `orderOf(orderHash) → (Order, exists)`, `bindSettlementEngine(engine)`. Events: `OrderSubmitted`, `OrderCancelled`, `Matched`.
+- **Dependencies.** `AccountManager` (signer recovery via `ownerOf`), `MarketRegistry` (tick/lot validation, paused check), `SettlementEngine` (one-shot-bound handoff). EIP-712 domain `"Tangent v1"` (see `src/types/OrderTypes.sol`).
+- **Trust model.** Trustless for submit and cancel. Keeper-dependent for tick latency (anyone can tick once SettlementEngine is bound, but a keeper is expected to call regularly). The matching algorithm is deterministic price-time priority, but because `tick()` is still a normal EVM transaction, ADR 0001's end-of-block MEV claim is an architectural target rather than a property fully enforced by v0.4 alone.
 - **Forkability angle.** The matching engine is reusable for any orderbook market on Arc (spot, options, prediction markets), not just perps. The batched end-of-block pattern is generalizable to any high-MEV-risk venue. EIP-712 domain is the only Arc-perp-specific binding.
 
-#### SettlementEngine (`src/SettlementEngine.sol`, v0.5 target)
+#### SettlementEngine (`src/SettlementEngine.sol`, shipped locally in v0.5)
 
-- **Responsibility.** Permissionless settlement of matched orders. Validates the match set, runs margin checks, mutates positions via `USDCVault` hooks, emits `Settled` events.
-- **State held.** `_positions[accountId][marketId] → Position {size (int256, signed), entryPrice, lastFundingIdx}`. `_settledOrderFills[orderHash] → uint256` (cumulative fill per order, to enforce no over-fill across batches). Funding-rate accumulator per market (`_fundingIdx[marketId]`).
-- **Public API.** `settleBatch(Match[])`, `positionOf(accountId, marketId) → Position`, `equityOf(accountId) → int256` (free + locked + unrealized PnL), `marginUtilizationOf(accountId) → uint16` (bps). Events: `Settled`, `FundingApplied`.
-- **Dependencies.** `OrderBook` (validates each `orderHash` was emitted within the current settlement window), `USDCVault` (lockMargin / releaseMargin / applyPnL), `MarketRegistry` (mark price + risk params), `AccountManager` (signer for sig recovery double-check).
-- **Trust model.** Trustless. Anyone can call `settleBatch` with a valid match set. The contract reverts atomically on any invalid match, so a malicious caller can at worst grief themselves on gas. This is the primitive that breaks Shapeshifter's `SETTLEMENT_ROLE` gate.
-- **Forkability angle.** The position-accounting + margin-check logic is the most reusable piece of the system for other leveraged products. The `Match` struct is intentionally minimal (7 fields, no signatures-in-Match) so forks can extend the match shape without rewriting the settlement core.
+- **Responsibility.** Minimal matched-order settlement. Validates book-produced matches, mutates isolated positions, locks/releases initial margin through `USDCVault`, applies realized PnL, enforces reduce-only, and emits `Settled` / `PositionUpdated`.
+- **State held.** `_positions[accountId][marketId] → Position {size (int256, signed), entryPrice, lockedMargin}`.
+- **Public API.** `settleBatch(Match[])` callable only by the bound `OrderBook`; `positionOf(accountId, marketId) → Position`.
+- **Dependencies.** `OrderBook` (trusted match producer + order metadata), `USDCVault` (lockMargin / releaseMargin / applyPnL), `MarketRegistry` (risk params and pause defense).
+- **Trust model.** Permissionless at the system level through public `OrderBook.tick()`. Direct arbitrary `settleBatch` is intentionally not supported in v0.5 because it would need a richer proof or book-state mutation path to avoid fill/book drift.
+- **Forkability angle.** The position-accounting + isolated-margin core is reusable for other leveraged products. Funding, liquidation, portfolio margin, and direct proof-based settlement remain additive future layers.
 
 #### LiquidationKeeper (`src/LiquidationKeeper.sol`, v0.6 target)
 
@@ -578,9 +578,9 @@ classDiagram
 |---|---|---|
 | **AccountManager** | Trustless | No admin, no upgrade, deterministic state transitions. Worst case: spam registrations (bounded by gas cost) |
 | **MarketRegistry** | Admin-controlled (v0.1–v1.0) → Trustless with bond (v1.1) | Risk-param curation is too high-stakes for fully permissionless launch; bonded permissionless model lands once governance mechanics are spec'd |
-| **USDCVault** | Trustless (deposit, withdraw, reads) + bound-callee gated (margin hooks) | Only the deploy-time-bound `SettlementEngine` can mutate locked balance; withdrawal is owner-authorized |
+| **USDCVault** | Trustless (deposit, withdraw, reads) + bound-callee gated (margin hooks) | Only the `SettlementEngine` chosen by the immutable one-shot binder can mutate locked balance; withdrawal is owner-authorized |
 | **OrderBook** | Trustless | Submit, cancel, tick are all permissionless. Matching algorithm is deterministic price-time priority |
-| **SettlementEngine** | Trustless | Anyone can call `settleBatch`. Atomic-revert on any invalid match makes griefing self-punishing. This is the primitive that breaks `SETTLEMENT_ROLE` |
+| **SettlementEngine** | Bound-book settlement | Anyone can call `OrderBook.tick()`, but only the bound book can call `settleBatch`. Atomic-revert on any invalid fill keeps settlement and book state in sync |
 | **LiquidationKeeper** | Trustless + economic-incentive | Underwater check re-derives from oracle on every call. Bounty funds keepers; invalid-call asymmetry funds correctness |
 | **Pyth oracle adapter** | Oracle-trusted | Pyth attestor set + Arc's view of price-update VAA is the trust root. Standard for any oracle-dependent perp protocol |
 | **tangent-keeper** | Keeper-dependent (liveness only) | If down, traders self-tick. Cannot censor orders (anyone can call `tick()` in the same block) |
@@ -603,8 +603,8 @@ The roadmap is deliberately sliced so each version is independently mergeable, d
 | **v0.1** *(shipping today)* | Interfaces + `OrderTypes` library + `AccountManager` impl + `USDCVault` impl (deposit/withdraw + margin-hook scaffold + handler-driven invariant fuzz) + `MarketRegistry` impl with admin curation + pluggable `IPriceFeed` adapter (MockPriceFeed for tests, Pyth adapter at deploy) + Deploy wiring all three + ADRs 0001/0002/0003 + full unit/fuzz tests per contract + EIP-712 frozen-typehash tests + end-to-end integration test (register-market → register-account → deposit → mark-price-read → withdraw) | none | ~1,600 Sol + 1,300 test | Low. Three primitives, all production-shaped |
 | **v0.2: Confidential markets via ArcaneVM** | Once Arc enables [ArcaneVM](https://docs.arc.io/arc/concepts/execution-layer) (the confidential execution environment alongside Arc's public EVM), add an opt-in per-market flag for confidential trading where order book state, positions, and PnL are private. Natural fit for institutional traders who need position privacy without leaving Arc. Positioned at v0.2 to signal it's our highest-priority future milestone, not strict implementation order; ships whenever Arc protocol enables ArcaneVM. | ArcaneVM availability on Arc | TBD | Med. Gated on Arc protocol; design work happens in parallel with v0.3–v0.7 implementation |
 | **v0.3: PythPriceFeed adapter + permissionless market discovery hooks** | `PythPriceFeed.sol` adapter conforming to `IPriceFeed` and wrapping Pyth on Arc Testnet, plus event-rich market-listing hooks for the v0.9 permissionless-market path. (MarketRegistry itself already shipped in v0.1; v0.3 fills in the production oracle adapter and the discovery side of the registry.) | v0.1 | ~200 Sol + 200 test | Low. Pyth wrapping is the only unknown |
-| **v0.4: OrderBook** | EIP-712 sig verification, in-memory CLOB (linked-list by price level), submitOrder / cancelOrder / tick, settlement-engine binding stub, invariant tests | v0.1, v0.3 | ~700 Sol + 600 test | Med–High. The matching-engine bug surface is the hardest part of the whole system |
-| **v0.5: SettlementEngine** | Position accounting, margin checks, atomic batch revert, settlement-window enforcement, funding-rate accumulator (simple on-chain TWAP), integration tests against v0.4 | v0.1, v0.3, v0.4 | ~600 Sol + 700 test | High. The interaction surface with OrderBook + USDCVault is where economic bugs live |
+| **v0.4: OrderBook** | EIP-712 sig verification, bounded in-memory CLOB scanner, submitOrder / cancelOrder / tick, mandatory settlement-engine handoff, unit tests | v0.1, v0.3 | ~700 Sol + 600 test | Med–High. The matching-engine bug surface is the hardest part of the whole system |
+| **v0.5: SettlementEngine** | Bound-book settlement, isolated position accounting, initial-margin lock/release, realized PnL, reduce-only enforcement, atomic batch revert, integration tests against v0.4 | v0.1, v0.3, v0.4 | ~600 Sol + 700 test | High. The interaction surface with OrderBook + USDCVault is where economic bugs live |
 | **v0.6: LiquidationKeeper** | Permissionless liquidate(), bounty payout, slashing for invalid calls, invariant tests for "liquidation is only callable on truly underwater positions" | v0.1, v0.3, v0.5 | ~250 Sol + 300 test | Med. Logic is small but adversarial; needs heavy fuzzing |
 | **v0.7: Deploy + Arc Testnet** | Full Deploy.s.sol with the full contract wiring order from §7, deployment manifest emission, Arcscan verification, end-to-end shadow trade against real Arc Testnet RPC | v0.1, v0.3–v0.6 | ~200 Sol + ops docs | Med. First touch with Arc Testnet; expect oracle/feed integration drift |
 | **v0.8: Keeper + Rust SDK** | `rust/tangent-keeper` daemon (tick + liquidate), `rust/tangent-sdk` crate (typed-data signing, RPC client, Circle Dev Wallet integration), GitHub Actions Rust CI, crates.io publish | v0.7 | ~2,500 Rust + tests | Med. New language surface; expect alloy ABI codegen friction |
@@ -834,8 +834,8 @@ See [ADR 0002](./docs/adr/0002-permissionless-account-onboarding.md). One-line s
 
 ### 9.7 Funding rate: on-chain TWAP vs off-chain oracle
 
-**Chosen (v0.5):** on-chain TWAP funding rate. Each market accumulates a funding index updated on every `tick()`, derived from the difference between mark price (Pyth) and impact-price (best bid/ask midpoint on the local book).
-**Rejected (for v0.5):** off-chain funding-rate oracle.
+**Chosen (post-v0.5):** on-chain TWAP funding rate. Each market accumulates a funding index updated on every `tick()`, derived from the difference between mark price (Pyth) and impact-price (best bid/ask midpoint on the local book).
+**Rejected (for the minimal v0.5 core):** shipping funding before basic settlement, margin lock/release, and PnL are proven.
 
 **Rationale:** on-chain TWAP is transparent, deterministic, and removes one external trust dependency. It is slightly noisier and less responsive than a curated off-chain rate, but for a reference implementation the auditability win dominates. A future fork that wants Hyperliquid-style premium-index funding can add an oracle adapter without touching the rest of the system.
 
@@ -872,7 +872,7 @@ Items explicitly not yet decided. Listed so forks and the Arc OSS reviewers can 
 ### Critical files for implementation
 
 - D:/Projects/arc-perp-reference/src/interfaces/IOrderBook.sol: the public surface every off-chain consumer (SDK, keeper, future matcher) binds to; landing v0.4 means implementing exactly this interface
-- D:/Projects/arc-perp-reference/src/interfaces/ISettlement.sol: defines the `Match` struct and the permissionless settle entry point; v0.5 is the highest-risk single contract and this interface is its frozen API
+- D:/Projects/arc-perp-reference/src/interfaces/ISettlement.sol: defines the `Match` struct and bound-book settlement entry point; v0.5 is the highest-risk single contract and this interface is its public API
 - D:/Projects/arc-perp-reference/src/interfaces/IUSDCVault.sol: pins the lock/release/applyPnL hook shape that `SettlementEngine` will call; v0.2's impl must match this exactly so v0.5 can wire against it without churn
 - D:/Projects/arc-perp-reference/src/types/OrderTypes.sol: the EIP-712 schema is the canonical public contract between agents and the system; any change here is a wire-breaking signature change, so v0.4 OrderBook and v1.0 SDK both freeze against this file
 - D:/Projects/arc-perp-reference/script/Deploy.s.sol: the wiring-order comment in this scaffold is the deployment dependency graph for v0.7; the full implementation must materialize the 8-step order called out in its header

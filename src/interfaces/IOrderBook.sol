@@ -43,9 +43,12 @@ interface IOrderBook {
 
     /// @notice Permissionless end-of-block tick. Walks the book once and emits
     ///         Matched events for the batch. Settlement handoff happens via
-    ///         the ISettlement contract bound at deploy.
+    ///         the one-shot-bound ISettlement contract.
     function tick() external;
 
     /// @notice True if the order with the given hash is still resting on the book.
     function isLive(bytes32 orderHash) external view returns (bool);
+
+    /// @notice Full stored order metadata for settlement validation.
+    function orderOf(bytes32 orderHash) external view returns (OrderTypes.Order memory order, bool exists);
 }
