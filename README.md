@@ -54,7 +54,7 @@ Tangent
 - `MarketRegistry.sol`: admin-curated perp market catalogue with risk params + pluggable `IPriceFeed` oracle adapter (`MockPriceFeed` for tests; Pyth adapter lands at deploy time) (20+ unit + fuzz tests)
 - `OrderBook.sol`: EIP-712 signed order submission, account-owner recovery, nonce protection, market tick/lot validation, owner cancellation, expiry sweep, deterministic price-time matching, partial fills, self-trade skip, pause-aware matching, `Matched` events, bounded live-order count, stored order metadata, and one-shot settlement-engine binding
 - `SettlementEngine.sol`: bound-book settlement, per-account/per-market positions, isolated initial-margin locking, proportional margin release, realized PnL application, reduce-only enforcement, paused-market defense, and atomic batch revert
-- `LiquidationKeeper.sol`: permissionless underwater-position close at mark price using isolated locked-margin equity; bounty and insurance-fund routing are deferred
+- `LiquidationKeeper.sol`: permissionless underwater-position close at mark price using account collateral equity plus unrealized PnL; bounty and insurance-fund routing are deferred
 - `OrderTypes.sol`: EIP-712 `Order` schema under domain `"Tangent v1"` with frozen-typehash + sign/recover tests
 - Interface stubs for the rest: `IPriceFeed`, plus the public `IOrderBook` / `ISettlement` surface used by the local settlement path
 - `script/Deploy.s.sol` wiring AccountManager + USDCVault + MarketRegistry + OrderBook + SettlementEngine + LiquidationKeeper end-to-end with one-shot vault/book/liquidation binding

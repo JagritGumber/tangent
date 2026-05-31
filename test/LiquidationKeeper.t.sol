@@ -87,7 +87,7 @@ contract LiquidationKeeperTest is Test {
         vault = new USDCVault(IERC20(address(usdc)), IAccountManager(address(accounts)));
         book = new OrderBook(address(accounts), address(markets));
         settlement = new SettlementEngine(address(book), address(vault), address(markets));
-        keeper = new LiquidationKeeper(address(settlement), address(markets));
+        keeper = new LiquidationKeeper(address(settlement), address(markets), address(vault));
         vault.bindSettlementEngine(address(settlement));
         book.bindSettlementEngine(address(settlement));
         settlement.bindLiquidationKeeper(address(keeper));
@@ -106,14 +106,19 @@ contract LiquidationKeeperTest is Test {
 
     function test_constructor_revertsOnZeroAddress() public {
         vm.expectRevert(LiquidationKeeper.ZeroAddress.selector);
-        new LiquidationKeeper(address(0), address(markets));
+        new LiquidationKeeper(address(0), address(markets), address(vault));
 
         vm.expectRevert(LiquidationKeeper.ZeroAddress.selector);
-        new LiquidationKeeper(address(settlement), address(0));
+        new LiquidationKeeper(address(settlement), address(0), address(vault));
+
+        vm.expectRevert(LiquidationKeeper.ZeroAddress.selector);
+        new LiquidationKeeper(address(settlement), address(markets), address(0));
     }
 
     function test_isLiquidatableFalseAboveMaintenance() public {
         _openOneBtcAt65k();
+        vm.prank(alice);
+        vault.withdraw(aliceAccount, 93_500_000_000, alice);
         btcFeed.setPrice(PRICE_62K);
 
         assertFalse(keeper.isLiquidatable(aliceAccount, btcMarket));
@@ -126,6 +131,8 @@ contract LiquidationKeeperTest is Test {
 
     function test_liquidateRevertsWhenHealthy() public {
         _openOneBtcAt65k();
+        vm.prank(alice);
+        vault.withdraw(aliceAccount, 93_500_000_000, alice);
         btcFeed.setPrice(PRICE_62K);
 
         vm.expectRevert(
@@ -142,6 +149,8 @@ contract LiquidationKeeperTest is Test {
 
     function test_liquidateClosesUnderwaterLongAtMark() public {
         _openOneBtcAt65k();
+        vm.prank(alice);
+        vault.withdraw(aliceAccount, 93_500_000_000, alice);
         btcFeed.setPrice(PRICE_50K);
 
         assertTrue(keeper.isLiquidatable(aliceAccount, btcMarket));
@@ -154,14 +163,16 @@ contract LiquidationKeeperTest is Test {
         assertEq(alicePosition.entryPrice, 0);
         assertEq(alicePosition.lockedMargin, 0);
         assertEq(vault.lockedBalanceOf(aliceAccount), 0);
-        assertEq(vault.freeBalanceOf(aliceAccount), 85_000_000_000);
+        assertEq(vault.totalBalanceOf(aliceAccount), 0);
     }
 
-    function test_liquidateRevertsWhenNoPosition() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(LiquidationKeeper.NoPosition.selector, aliceAccount, btcMarket)
-        );
-        keeper.isLiquidatable(aliceAccount, btcMarket);
+    function test_isLiquidatableReturnsFalseWhenNoPosition() public view {
+        assertFalse(keeper.isLiquidatable(aliceAccount, btcMarket));
+        (bool liquidatable, int256 equity, uint256 maintenanceMargin) =
+            keeper.liquidationState(aliceAccount, btcMarket);
+        assertFalse(liquidatable);
+        assertEq(equity, 0);
+        assertEq(maintenanceMargin, 0);
     }
 
     function _openOneBtcAt65k() internal {

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {ISettlement} from "./interfaces/ISettlement.sol";
 import {IMarketRegistry} from "./interfaces/IMarketRegistry.sol";
+import {IUSDCVault} from "./interfaces/IUSDCVault.sol";
 
 /// @title  LiquidationKeeper
 /// @notice v0.6 minimal liquidation entry point. Anyone can close an
@@ -13,6 +14,7 @@ contract LiquidationKeeper {
 
     ISettlement public immutable settlement;
     IMarketRegistry public immutable markets;
+    IUSDCVault public immutable vault;
 
     event Liquidated(
         uint256 indexed accountId,
@@ -23,14 +25,14 @@ contract LiquidationKeeper {
     );
 
     error ZeroAddress();
-    error NoPosition(uint256 accountId, uint256 marketId);
     error NotLiquidatable(uint256 accountId, uint256 marketId, int256 equity, uint256 maintenanceMargin);
     error Int256Overflow(uint256 value);
 
-    constructor(address _settlement, address _markets) {
-        if (_settlement == address(0) || _markets == address(0)) revert ZeroAddress();
+    constructor(address _settlement, address _markets, address _vault) {
+        if (_settlement == address(0) || _markets == address(0) || _vault == address(0)) revert ZeroAddress();
         settlement = ISettlement(_settlement);
         markets = IMarketRegistry(_markets);
+        vault = IUSDCVault(_vault);
     }
 
     function liquidate(uint256 accountId, uint256 marketId) external {
@@ -64,13 +66,13 @@ contract LiquidationKeeper {
         returns (bool liquidatable, int256 equity, uint256 maintenanceMargin)
     {
         ISettlement.Position memory p = settlement.positionOf(accountId, marketId);
-        if (p.size == 0) revert NoPosition(accountId, marketId);
+        if (p.size == 0) return (false, 0, 0);
 
         IMarketRegistry.Market memory market = markets.market(marketId);
         uint256 size = _abs(p.size);
         int256 unrealized = _realizedPnl(p.size, size, p.entryPrice, price);
 
-        equity = _toInt256(p.lockedMargin) + unrealized;
+        equity = _toInt256(vault.totalBalanceOf(accountId)) + unrealized;
         maintenanceMargin = size * price / USDC_SCALE * market.maintMarginBps / 10_000;
         liquidatable = equity < _toInt256(maintenanceMargin);
     }
