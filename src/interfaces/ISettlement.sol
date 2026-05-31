@@ -54,4 +54,8 @@ interface ISettlement {
     /// @notice Liquidation hook callable only by the bound LiquidationKeeper.
     ///         Closes the entire position at mark price and realizes PnL.
     function forceClose(uint256 accountId, uint256 marketId, uint256 price) external returns (int256 pnl);
+
+    /// @notice Reverts if withdrawing `amount` would leave the account below
+    ///         aggregate maintenance margin across open positions.
+    function validateWithdrawal(uint256 accountId, uint256 amount) external view;
 }

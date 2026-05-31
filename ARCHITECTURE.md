@@ -131,7 +131,7 @@ flowchart TB
 
 - **Responsibility.** Per-account USDC collateral vault. Tracks free balance, locked margin, and applies realized PnL. The only contract that holds user funds.
 - **State held.** `_free[accountId] → uint256`, `_locked[accountId] → uint256`. Two slots per funded account.
-- **Public API.** User-facing: `deposit(accountId, amount)`, `withdraw(accountId, amount, to)`, `freeBalanceOf`, `lockedBalanceOf`, `totalBalanceOf`. Settlement-engine hooks (access-gated by deploy-time binding): `lockMargin`, `releaseMargin`, `applyPnL(int256)`. Events: `Deposited`, `Withdrawn`, `MarginLocked`, `MarginReleased`, `PnLApplied`.
+- **Public API.** User-facing: `deposit(accountId, amount)`, `withdraw(accountId, amount, to)`, `freeBalanceOf`, `lockedBalanceOf`, `totalBalanceOf`. Settlement-engine hooks (access-gated by deploy-time binding): `lockMargin`, `releaseMargin`, `applyPnL(int256)`. Bound withdrawals call `SettlementEngine.validateWithdrawal` before funds leave. Events: `Deposited`, `Withdrawn`, `MarginLocked`, `MarginReleased`, `PnLApplied`.
 - **Dependencies.** USDC ERC-20 contract on Arc (immutable address bound at construction). `AccountManager` for ownership checks on `withdraw`. `SettlementEngine` bound once by the immutable `settlementBinder` via `bindSettlementEngine` (one-shot, no admin upgrade path after binding).
 - **Trust model.** Trustless for deposit and balance reads. Keeper-dependent indirectly (margin can only be released by `SettlementEngine`, which fires from `tick()`). Withdrawal is owner-authorized via `AccountManager.ownerOf`.
 - **Forkability angle.** Self-contained ERC-20 vault. Forks can swap the collateral token (USDC → USDT, eUSD, etc) by changing one immutable constructor arg. The `lockMargin / releaseMargin / applyPnL` triad is reusable for any leveraged product, not just perps.
@@ -147,9 +147,9 @@ flowchart TB
 
 #### SettlementEngine (`src/SettlementEngine.sol`, shipped locally in v0.5)
 
-- **Responsibility.** Minimal matched-order settlement. Validates book-produced matches, mutates isolated positions, locks/releases initial margin through `USDCVault`, applies realized PnL, enforces reduce-only, and emits `Settled` / `PositionUpdated`.
-- **State held.** `_positions[accountId][marketId] → Position {size (int256, signed), entryPrice, lockedMargin}`.
-- **Public API.** `settleBatch(Match[])` callable only by the bound `OrderBook`; `positionOf(accountId, marketId) → Position`.
+- **Responsibility.** Minimal matched-order settlement. Validates book-produced matches, mutates isolated positions, locks/releases initial margin through `USDCVault`, applies realized PnL, validates post-withdrawal maintenance health, enforces reduce-only, and emits `Settled` / `PositionUpdated`.
+- **State held.** `_positions[accountId][marketId] → Position {size (int256, signed), entryPrice, lockedMargin}` plus per-account touched-market lists used for aggregate maintenance checks.
+- **Public API.** `settleBatch(Match[])` callable only by the bound `OrderBook`; `positionOf(accountId, marketId) → Position`; `validateWithdrawal(accountId, amount)`.
 - **Dependencies.** `OrderBook` (trusted match producer + order metadata), `USDCVault` (lockMargin / releaseMargin / applyPnL), `MarketRegistry` (risk params and pause defense).
 - **Trust model.** Permissionless at the system level through public `OrderBook.tick()`. Direct arbitrary `settleBatch` is intentionally not supported in v0.5 because it would need a richer proof or book-state mutation path to avoid fill/book drift.
 - **Forkability angle.** The position-accounting + isolated-margin core is reusable for other leveraged products. Funding, liquidation, portfolio margin, and direct proof-based settlement remain additive future layers.
@@ -403,16 +403,16 @@ sequenceDiagram
     V->>AM: ownerOf(accountId)
     AM-->>V: owner EOA
     V->>V: require(msg.sender == owner)
-    V->>SE: marginUtilizationOf(accountId) [post-withdrawal projection]
-    SE-->>V: utilization bps
-    V->>V: require(utilization < maintMarginBps)
+    V->>SE: validateWithdrawal(accountId, amount)
+    SE->>SE: equityAfter = totalBalance - amount + unrealizedPnL
+    SE->>SE: require(equityAfter >= aggregateMaintenanceMargin)
     V->>V: _free[accountId] -= 500_000_000
     V->>USDC: transfer(agent, 500_000_000)
     USDC-->>V: Transfer event
     V-->>Agent: emit Withdrawn
 ```
 
-**What to look at:** the vault asks `SettlementEngine` for the post-withdrawal margin utilization before allowing the transfer. If the withdrawal would drop the account below maintenance margin against any open position, the call reverts. This is the only on-chain check; there is no off-chain withdrawal approval.
+**What to look at:** the vault asks `SettlementEngine` to validate the post-withdrawal account state before allowing the transfer. If the withdrawal would drop account equity below aggregate maintenance margin across open positions, the call reverts. This is the only on-chain check; there is no off-chain withdrawal approval.
 
 ---
 
@@ -497,10 +497,11 @@ classDiagram
         +IMarketRegistry immutable markets
         +IAccountManager immutable accounts
         -mapping(uint256=>mapping(uint256=>Position)) _positions
-        -mapping(bytes32=>uint256) _settledOrderFills
+        -mapping(uint256=>uint256[]) _accountMarkets
         -mapping(uint256=>uint256) _fundingIdx
         +settleBatch(Match[])
         +positionOf(uint256, uint256) Position
+        +validateWithdrawal(uint256, uint256)
         +equityOf(uint256) int256
     }
 
@@ -538,7 +539,7 @@ classDiagram
 | `owner` | `address` | AccountManager | Canonical signer source |
 | `freeBalance` | `uint256` (USDC, 6 dec) | USDCVault | Withdrawable + available for new orders |
 | `lockedBalance` | `uint256` | USDCVault | Initial margin against open positions |
-| `position[marketId]` | `Position` | SettlementEngine | Signed size + entry price + funding idx |
+| `position[marketId]` | `Position` | SettlementEngine | Signed size + entry price + locked margin |
 | `nonce` (per-order) | `uint256` | OrderBook (in Order struct) | Per-account monotonic; consumed on settle |
 
 ### 4.3 Per-market state shape
@@ -572,7 +573,7 @@ classDiagram
 |---|---|---|
 | **AccountManager** | Trustless | No admin, no upgrade, deterministic state transitions. Worst case: spam registrations (bounded by gas cost) |
 | **MarketRegistry** | Admin-controlled (v0.1–v1.0) → Trustless with bond (v1.1) | Risk-param curation is too high-stakes for fully permissionless launch; bonded permissionless model lands once governance mechanics are spec'd |
-| **USDCVault** | Trustless (deposit, withdraw, reads) + bound-callee gated (margin hooks) | Only the `SettlementEngine` chosen by the immutable one-shot binder can mutate locked balance; withdrawal is owner-authorized |
+| **USDCVault** | Trustless (deposit, withdraw, reads) + bound-callee gated (margin hooks) | Only the `SettlementEngine` chosen by the immutable one-shot binder can mutate locked balance; withdrawal is owner-authorized and maintenance-checked once settlement is bound |
 | **OrderBook** | Trustless | Submit, cancel, tick are all permissionless. Matching algorithm is deterministic price-time priority |
 | **SettlementEngine** | Bound-book settlement | Anyone can call `OrderBook.tick()`, but only the bound book can call `settleBatch`. Atomic-revert on any invalid fill keeps settlement and book state in sync |
 | **LiquidationKeeper** | Trustless + economic-incentive | Underwater check re-derives from oracle on every call. Bounty funds keepers; invalid-call asymmetry funds correctness |
@@ -598,7 +599,7 @@ The roadmap is deliberately sliced so each version is independently mergeable, d
 | **v0.2: Confidential markets via ArcaneVM** | Once Arc enables [ArcaneVM](https://docs.arc.io/arc/concepts/execution-layer) (the confidential execution environment alongside Arc's public EVM), add an opt-in per-market flag for confidential trading where order book state, positions, and PnL are private. Natural fit for institutional traders who need position privacy without leaving Arc. Positioned at v0.2 to signal it's our highest-priority future milestone, not strict implementation order; ships whenever Arc protocol enables ArcaneVM. | ArcaneVM availability on Arc | TBD | Med. Gated on Arc protocol; design work happens in parallel with v0.3–v0.7 implementation |
 | **v0.3: PythPriceFeed adapter + permissionless market discovery hooks** | `PythPriceFeed.sol` adapter conforming to `IPriceFeed` and wrapping Pyth on Arc Testnet, plus event-rich market-listing hooks for the v0.9 permissionless-market path. (MarketRegistry itself already shipped in v0.1; v0.3 fills in the production oracle adapter and the discovery side of the registry.) | v0.1 | ~200 Sol + 200 test | Low. Pyth wrapping is the only unknown |
 | **v0.4: OrderBook** | EIP-712 sig verification, bounded in-memory CLOB scanner, submitOrder / cancelOrder / tick, mandatory settlement-engine handoff, unit tests | v0.1, v0.3 | ~700 Sol + 600 test | Med–High. The matching-engine bug surface is the hardest part of the whole system |
-| **v0.5: SettlementEngine** | Bound-book settlement, isolated position accounting, initial-margin lock/release, realized PnL, reduce-only enforcement, atomic batch revert, integration tests against v0.4 | v0.1, v0.3, v0.4 | ~600 Sol + 700 test | High. The interaction surface with OrderBook + USDCVault is where economic bugs live |
+| **v0.5: SettlementEngine** | Bound-book settlement, isolated position accounting, initial-margin lock/release, realized PnL, withdrawal health validation, reduce-only enforcement, atomic batch revert, integration tests against v0.4 | v0.1, v0.3, v0.4 | ~600 Sol + 700 test | High. The interaction surface with OrderBook + USDCVault is where economic bugs live |
 | **v0.6: LiquidationKeeper** | Permissionless liquidate(), account-collateral health check, mark-price forced close through SettlementEngine, tests for healthy/no-position/underwater paths | v0.1, v0.3, v0.5 | ~250 Sol + 300 test | Med. Logic is small but adversarial; needs heavy fuzzing |
 | **v0.7: Deploy + Arc Testnet** | Full Deploy.s.sol with the full contract wiring order from §7, deployment manifest emission, Arcscan verification, end-to-end shadow trade against real Arc Testnet RPC | v0.1, v0.3–v0.6 | ~200 Sol + ops docs | Med. First touch with Arc Testnet; expect oracle/feed integration drift |
 | **v0.8: Keeper + Rust SDK** | `rust/tangent-keeper` daemon (tick + liquidate), `rust/tangent-sdk` crate (typed-data signing, RPC client, Circle Dev Wallet integration), GitHub Actions Rust CI, crates.io publish | v0.7 | ~2,500 Rust + tests | Med. New language surface; expect alloy ABI codegen friction |

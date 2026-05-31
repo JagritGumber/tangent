@@ -21,6 +21,8 @@ contract SettlementEngine is ISettlement {
     address public liquidationKeeper;
 
     mapping(uint256 accountId => mapping(uint256 marketId => ISettlement.Position)) private _positions;
+    mapping(uint256 accountId => uint256[]) private _accountMarkets;
+    mapping(uint256 accountId => mapping(uint256 marketId => bool)) private _accountMarketSeen;
 
     event PositionUpdated(
         uint256 indexed accountId,
@@ -42,6 +44,7 @@ contract SettlementEngine is ISettlement {
     error ReduceOnlyViolation(uint256 accountId, uint256 marketId);
     error NoPosition(uint256 accountId, uint256 marketId);
     error Int256Overflow(uint256 value);
+    error WithdrawalWouldBreachMaintenance(uint256 accountId, int256 equity, uint256 maintenanceMargin);
 
     constructor(address _orderBook, address _vault, address _markets) {
         if (_orderBook == address(0) || _vault == address(0) || _markets == address(0)) {
@@ -107,6 +110,14 @@ contract SettlementEngine is ISettlement {
         p.lockedMargin = 0;
 
         emit PositionUpdated(accountId, marketId, 0, 0, 0);
+    }
+
+    /// @inheritdoc ISettlement
+    function validateWithdrawal(uint256 accountId, uint256 amount) external view override {
+        (int256 equity, uint256 maintenanceMargin) = _marginStateAfterWithdrawal(accountId, amount);
+        if (equity < _toInt256(maintenanceMargin)) {
+            revert WithdrawalWouldBreachMaintenance(accountId, equity, maintenanceMargin);
+        }
     }
 
     function _settle(Match calldata m) internal {
@@ -214,6 +225,7 @@ contract SettlementEngine is ISettlement {
         uint256 addedMargin = _initialMargin(deltaAbs, price, initialMarginBps);
 
         vault.lockMargin(accountId, addedMargin);
+        _trackMarket(accountId, marketId);
 
         if (oldAbs == 0) {
             p.entryPrice = price;
@@ -224,6 +236,36 @@ contract SettlementEngine is ISettlement {
         p.size += delta;
         p.lockedMargin += addedMargin;
         emit PositionUpdated(accountId, marketId, p.size, p.entryPrice, p.lockedMargin);
+    }
+
+    function _marginStateAfterWithdrawal(uint256 accountId, uint256 withdrawAmount)
+        internal
+        view
+        returns (int256 equity, uint256 maintenanceMargin)
+    {
+        uint256 totalBalance = vault.totalBalanceOf(accountId);
+        equity = withdrawAmount > totalBalance
+            ? -_toInt256(withdrawAmount - totalBalance)
+            : _toInt256(totalBalance - withdrawAmount);
+
+        uint256[] storage accountMarkets = _accountMarkets[accountId];
+        for (uint256 i = 0; i < accountMarkets.length; i++) {
+            uint256 marketId = accountMarkets[i];
+            ISettlement.Position storage p = _positions[accountId][marketId];
+            if (p.size == 0) continue;
+
+            IMarketRegistry.Market memory market = markets.market(marketId);
+            uint256 price = markets.markPrice(marketId);
+            uint256 size = _abs(p.size);
+            equity += _realizedPnl(p.size, size, p.entryPrice, price);
+            maintenanceMargin += size * price / USDC_SCALE * market.maintMarginBps / 10_000;
+        }
+    }
+
+    function _trackMarket(uint256 accountId, uint256 marketId) internal {
+        if (_accountMarketSeen[accountId][marketId]) return;
+        _accountMarketSeen[accountId][marketId] = true;
+        _accountMarkets[accountId].push(marketId);
     }
 
     function _initialMargin(uint256 size, uint256 price, uint16 initialMarginBps)

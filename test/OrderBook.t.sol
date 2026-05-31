@@ -42,6 +42,8 @@ contract MockSettlement is ISettlement {
     function forceClose(uint256, uint256, uint256) external pure override returns (int256) {
         return 0;
     }
+
+    function validateWithdrawal(uint256, uint256) external pure override {}
 }
 
 contract OrderBookTest is Test {

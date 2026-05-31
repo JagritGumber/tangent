@@ -147,6 +147,22 @@ contract LiquidationKeeperTest is Test {
         keeper.liquidate(aliceAccount, btcMarket);
     }
 
+    function test_withdrawRevertsWhenItWouldBreachMaintenance() public {
+        _openOneBtcAt65k();
+        btcFeed.setPrice(PRICE_50K);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementEngine.WithdrawalWouldBreachMaintenance.selector,
+                aliceAccount,
+                -8_500_000_000,
+                uint256(2_500_000_000)
+            )
+        );
+        vm.prank(alice);
+        vault.withdraw(aliceAccount, 93_500_000_000, alice);
+    }
+
     function test_liquidateClosesUnderwaterLongAtMark() public {
         _openOneBtcAt65k();
         vm.prank(alice);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {IUSDCVault} from "./interfaces/IUSDCVault.sol";
 import {IAccountManager} from "./interfaces/IAccountManager.sol";
+import {ISettlement} from "./interfaces/ISettlement.sol";
 
 /// @notice Minimal ERC-20 interface for the USDC token on Arc Testnet. We
 ///         depend only on transferFrom + transfer to keep the surface small
@@ -106,6 +107,9 @@ contract USDCVault is IUSDCVault {
 
         uint256 free = _free[accountId];
         if (amount > free) revert InsufficientFree(accountId, amount, free);
+        if (settlementEngine != address(0)) {
+            ISettlement(settlementEngine).validateWithdrawal(accountId, amount);
+        }
         _free[accountId] = free - amount;
 
         if (!usdc.transfer(to, amount)) revert TransferFailed();

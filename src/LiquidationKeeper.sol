@@ -29,7 +29,9 @@ contract LiquidationKeeper {
     error Int256Overflow(uint256 value);
 
     constructor(address _settlement, address _markets, address _vault) {
-        if (_settlement == address(0) || _markets == address(0) || _vault == address(0)) revert ZeroAddress();
+        if (_settlement == address(0) || _markets == address(0) || _vault == address(0)) {
+            revert ZeroAddress();
+        }
         settlement = ISettlement(_settlement);
         markets = IMarketRegistry(_markets);
         vault = IUSDCVault(_vault);
