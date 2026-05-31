@@ -7,12 +7,14 @@ import {USDCVault, IERC20} from "../src/USDCVault.sol";
 import {MarketRegistry} from "../src/MarketRegistry.sol";
 import {OrderBook} from "../src/OrderBook.sol";
 import {SettlementEngine} from "../src/SettlementEngine.sol";
+import {LiquidationKeeper} from "../src/LiquidationKeeper.sol";
 import {IAccountManager} from "../src/interfaces/IAccountManager.sol";
 
 /// @title  Deploy
-/// @notice v0.5 deployment script. Deploys AccountManager, USDCVault,
-///         MarketRegistry, OrderBook, and SettlementEngine. USDCVault and
-///         OrderBook are wired to SettlementEngine via one-shot binding.
+/// @notice v0.6 deployment script. Deploys AccountManager, USDCVault,
+///         MarketRegistry, OrderBook, SettlementEngine, and LiquidationKeeper.
+///         USDCVault, OrderBook, and SettlementEngine are wired via one-shot
+///         binding.
 ///         MarketRegistry's admin is set to the deployer for hackathon
 ///         deployments; production forks should pass a multisig address.
 ///
@@ -39,8 +41,10 @@ contract Deploy is Script {
         OrderBook orderBook = new OrderBook(address(accountManager), address(markets));
         SettlementEngine settlement =
             new SettlementEngine(address(orderBook), address(vault), address(markets));
+        LiquidationKeeper liquidationKeeper = new LiquidationKeeper(address(settlement), address(markets));
         vault.bindSettlementEngine(address(settlement));
         orderBook.bindSettlementEngine(address(settlement));
+        settlement.bindLiquidationKeeper(address(liquidationKeeper));
 
         console2.log("--- Tangent deployment ---");
         console2.log("AccountManager: ", address(accountManager));
@@ -48,6 +52,7 @@ contract Deploy is Script {
         console2.log("MarketRegistry: ", address(markets));
         console2.log("OrderBook:      ", address(orderBook));
         console2.log("Settlement:     ", address(settlement));
+        console2.log("Liquidations:   ", address(liquidationKeeper));
         console2.log("USDC (Arc):     ", usdc);
         console2.log("MarketAdmin:    ", marketAdmin);
         console2.log("ChainId:        ", block.chainid);

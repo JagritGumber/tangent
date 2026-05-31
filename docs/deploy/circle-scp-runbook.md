@@ -48,7 +48,7 @@ The contracts have a dependency chain. Deploy in this order:
   2. `_accounts` (address): `ACCOUNT_MANAGER_ADDR` from step 1
 - After deploy: copy the deployed contract address. Call it `USDC_VAULT_ADDR`.
 
-Note: `USDCVault.bindSettlementEngine(...)` is intentionally left UNCALLED in v0.1. Until v0.5 ships the real `SettlementEngine`, the margin/PnL hooks revert if called. Deposits and withdrawals work without binding. This is by design.
+Note: the live v0.1 deployment intentionally left `USDCVault.bindSettlementEngine(...)` uncalled. Until a newer local v0.6 deployment wires `SettlementEngine` and `LiquidationKeeper`, the live margin/PnL hooks revert if called. Deposits and withdrawals work without binding. This is by design.
 
 ### 3. MarketRegistry
 
@@ -84,8 +84,8 @@ Also update the `README.md` "Deploy to Arc Testnet" section: replace the placeho
 ## What is NOT done in v0.1
 
 - No `OrderBook` deployed (lands v0.4).
-- No `SettlementEngine` deployed (lands v0.5). `USDCVault.bindSettlementEngine` is unbound.
-- No `LiquidationKeeper` deployed (lands v0.6).
+- No `SettlementEngine` deployed in the live v0.1 manifest. `USDCVault.bindSettlementEngine` is unbound there.
+- No `LiquidationKeeper` deployed in the live v0.1 manifest.
 - No live markets registered (admin can call `MarketRegistry.registerMarket(...)` once a real `IPriceFeed` adapter exists, v0.3).
 
 The deploy demonstrates the three working primitives. Anyone can already:

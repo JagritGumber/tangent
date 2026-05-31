@@ -48,6 +48,8 @@ jobs:
           forge flatten src/USDCVault.sol --output flat/USDCVault.flat.sol
           forge flatten src/MarketRegistry.sol --output flat/MarketRegistry.flat.sol
           forge flatten src/OrderBook.sol --output flat/OrderBook.flat.sol
+          forge flatten src/SettlementEngine.sol --output flat/SettlementEngine.flat.sol
+          forge flatten src/LiquidationKeeper.sol --output flat/LiquidationKeeper.flat.sol
 
       - name: Bundle deploy artifacts
         run: |
@@ -57,6 +59,8 @@ jobs:
           cp out/USDCVault.sol/USDCVault.json deploy-artifacts/USDCVault.compiled.json
           cp out/MarketRegistry.sol/MarketRegistry.json deploy-artifacts/MarketRegistry.compiled.json
           cp out/OrderBook.sol/OrderBook.json deploy-artifacts/OrderBook.compiled.json
+          cp out/SettlementEngine.sol/SettlementEngine.json deploy-artifacts/SettlementEngine.compiled.json
+          cp out/LiquidationKeeper.sol/LiquidationKeeper.json deploy-artifacts/LiquidationKeeper.compiled.json
 
       - name: Upload deploy artifacts
         uses: actions/upload-artifact@v4

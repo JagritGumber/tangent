@@ -154,14 +154,14 @@ flowchart TB
 - **Trust model.** Permissionless at the system level through public `OrderBook.tick()`. Direct arbitrary `settleBatch` is intentionally not supported in v0.5 because it would need a richer proof or book-state mutation path to avoid fill/book drift.
 - **Forkability angle.** The position-accounting + isolated-margin core is reusable for other leveraged products. Funding, liquidation, portfolio margin, and direct proof-based settlement remain additive future layers.
 
-#### LiquidationKeeper (`src/LiquidationKeeper.sol`, v0.6 target)
+#### LiquidationKeeper (`src/LiquidationKeeper.sol`, shipped locally in v0.6)
 
-- **Responsibility.** Permissionless liquidation entry point. Anyone can call `liquidate(accountId, marketId)` against an underwater position; the contract validates underwater-ness against the oracle, force-closes at the mark, applies negative PnL, pays the liquidator a bounty out of the closed position's locked margin.
-- **State held.** Liquidator-bounty bps (immutable at deploy). No persistent per-account liquidation state (the validation re-derives from `SettlementEngine.positionOf` each call).
-- **Public API.** `liquidate(accountId, marketId)`, `liquidationPrice(accountId, marketId) → uint256` (view), `isLiquidatable(accountId, marketId) → bool` (view). Events: `Liquidated`.
-- **Dependencies.** `SettlementEngine` (forced position close + PnL apply), `USDCVault` (bounty payout), `MarketRegistry` (mark price + maintMarginBps).
-- **Trust model.** Trustless + keeper-incentivized. Invalid liquidation calls revert; the bounty + gas cost asymmetry funds the keeper bot ecosystem. No `LIQUIDATION_ROLE`. Anyone with capital can liquidate.
-- **Forkability angle.** Slashing-bond pattern for keepers is reusable for any leveraged product (options, lending, etc.). The contract is < 200 LOC by design so forks can audit it line-by-line.
+- **Responsibility.** Permissionless liquidation entry point. Anyone can call `liquidate(accountId, marketId)` against an underwater isolated-margin position; the contract validates underwater-ness against the oracle and force-closes the full position at mark price.
+- **State held.** No persistent per-account liquidation state. Validation re-derives from `SettlementEngine.positionOf` and `MarketRegistry.markPrice` on each call.
+- **Public API.** `liquidate(accountId, marketId)`, `isLiquidatable(accountId, marketId) → bool`, `liquidationState(accountId, marketId) → (liquidatable, equity, maintenanceMargin)`. Events: `Liquidated`.
+- **Dependencies.** `SettlementEngine` (forced position close + PnL apply), `MarketRegistry` (mark price + maintMarginBps).
+- **Trust model.** Trustless. Invalid liquidation calls revert. No `LIQUIDATION_ROLE`; anyone can close an underwater position. Liquidator bounty payout is intentionally deferred until the vault has a minimal, auditable payout hook.
+- **Forkability angle.** The close-at-mark pattern is reusable for any isolated-margin leveraged product. Bounty economics and insurance-fund routing can be added without changing the basic liquidation predicate.
 
 ### 2.2 Off-chain Rust components
 
@@ -366,9 +366,8 @@ sequenceDiagram
     participant V as USDCVault
     participant LIQ as Liquidator EOA
 
-    K->>SE: equityOf(accountId) (off-chain scan via SDK)
-    SE-->>K: equity, unrealized PnL
-    K->>K: equity < maintMargin → liquidatable
+    K->>LK: liquidationState(accountId, marketId)
+    LK-->>K: liquidatable, equity, maintenanceMargin
     K->>LK: liquidate(accountId, marketId) [from LIQ EOA]
     LK->>SE: positionOf(accountId, marketId)
     SE-->>LK: position
@@ -381,14 +380,11 @@ sequenceDiagram
     SE->>V: releaseMargin(accountId, lockedMargin)
     SE->>V: applyPnL(accountId, realizedPnL) // negative
     SE->>SE: _positions[acct][market] = 0
-    SE-->>LK: emit Settled (forced)
-    LK->>V: bounty = lockedMargin * bountyBps / 10000
-    LK->>V: applyPnL(accountId, -bounty)
-    LK->>V: deposit-equivalent credit to LIQ
-    LK-->>LIQ: emit Liquidated(accountId, marketId, liquidator, bounty)
+    SE-->>LK: pnl
+    LK-->>LIQ: emit Liquidated(accountId, marketId, liquidator, markPrice, pnl)
 ```
 
-**What to look at:** `LiquidationKeeper` is the only contract that ever invokes a forced close. The liquidator is paid out of the closed position's locked margin via a small bounty (e.g. 50–200 bps). The keeper bot can be the liquidator EOA, or any third-party EOA; the entry point is fully permissionless.
+**What to look at:** `LiquidationKeeper` is the only contract that ever invokes a forced close. The v0.6 entry point is fully permissionless but does not yet pay a liquidator bounty; bounty economics need a dedicated vault payout hook and insurance-fund policy.
 
 ### 3.6 Withdrawal
 
@@ -511,16 +507,15 @@ classDiagram
     class Position {
         +int256 size
         +uint256 entryPrice
-        +uint256 lastFundingIdx
+        +uint256 lockedMargin
     }
 
     class LiquidationKeeper {
         +ISettlementEngine immutable settlement
-        +IUSDCVault immutable vault
         +IMarketRegistry immutable markets
-        +uint16 immutable bountyBps
         +liquidate(uint256, uint256)
         +isLiquidatable(uint256, uint256) bool
+        +liquidationState(uint256, uint256)
     }
 
     MarketRegistry --> Market
@@ -533,7 +528,6 @@ classDiagram
     SettlementEngine ..> MarketRegistry : reads markPrice
     USDCVault ..> AccountManager : reads ownerOf
     LiquidationKeeper ..> SettlementEngine : forceClose
-    LiquidationKeeper ..> USDCVault : pays bounty
 ```
 
 ### 4.2 Per-account state shape
@@ -605,7 +599,7 @@ The roadmap is deliberately sliced so each version is independently mergeable, d
 | **v0.3: PythPriceFeed adapter + permissionless market discovery hooks** | `PythPriceFeed.sol` adapter conforming to `IPriceFeed` and wrapping Pyth on Arc Testnet, plus event-rich market-listing hooks for the v0.9 permissionless-market path. (MarketRegistry itself already shipped in v0.1; v0.3 fills in the production oracle adapter and the discovery side of the registry.) | v0.1 | ~200 Sol + 200 test | Low. Pyth wrapping is the only unknown |
 | **v0.4: OrderBook** | EIP-712 sig verification, bounded in-memory CLOB scanner, submitOrder / cancelOrder / tick, mandatory settlement-engine handoff, unit tests | v0.1, v0.3 | ~700 Sol + 600 test | Med–High. The matching-engine bug surface is the hardest part of the whole system |
 | **v0.5: SettlementEngine** | Bound-book settlement, isolated position accounting, initial-margin lock/release, realized PnL, reduce-only enforcement, atomic batch revert, integration tests against v0.4 | v0.1, v0.3, v0.4 | ~600 Sol + 700 test | High. The interaction surface with OrderBook + USDCVault is where economic bugs live |
-| **v0.6: LiquidationKeeper** | Permissionless liquidate(), bounty payout, slashing for invalid calls, invariant tests for "liquidation is only callable on truly underwater positions" | v0.1, v0.3, v0.5 | ~250 Sol + 300 test | Med. Logic is small but adversarial; needs heavy fuzzing |
+| **v0.6: LiquidationKeeper** | Permissionless liquidate(), isolated locked-margin health check, mark-price forced close through SettlementEngine, tests for healthy/no-position/underwater paths | v0.1, v0.3, v0.5 | ~250 Sol + 300 test | Med. Logic is small but adversarial; needs heavy fuzzing |
 | **v0.7: Deploy + Arc Testnet** | Full Deploy.s.sol with the full contract wiring order from §7, deployment manifest emission, Arcscan verification, end-to-end shadow trade against real Arc Testnet RPC | v0.1, v0.3–v0.6 | ~200 Sol + ops docs | Med. First touch with Arc Testnet; expect oracle/feed integration drift |
 | **v0.8: Keeper + Rust SDK** | `rust/tangent-keeper` daemon (tick + liquidate), `rust/tangent-sdk` crate (typed-data signing, RPC client, Circle Dev Wallet integration), GitHub Actions Rust CI, crates.io publish | v0.7 | ~2,500 Rust + tests | Med. New language surface; expect alloy ABI codegen friction |
 | **v0.9: Sub-accounts + permissionless markets + indexer** | AccountManager sub-account derivation, MarketRegistry permissionless registration with bond + slashing, `rust/tangent-indexer` daemon with Postgres + GraphQL | v0.8 | ~400 Sol + 1,500 Rust | Med–High. Permissionless markets need governance mechanics |

@@ -123,11 +123,45 @@ contract SettlementEngineTest is Test {
         settlement.settleBatch(matches);
     }
 
+    function test_bindLiquidationKeeper_setsAddress() public {
+        address keeper = address(0x1);
+        settlement.bindLiquidationKeeper(keeper);
+        assertEq(settlement.liquidationKeeper(), keeper);
+    }
+
+    function test_bindLiquidationKeeper_revertsOnNonBinder() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementEngine.OnlyLiquidationKeeperBinder.selector, alice, address(this)
+            )
+        );
+        vm.prank(alice);
+        settlement.bindLiquidationKeeper(address(0x1));
+    }
+
+    function test_bindLiquidationKeeper_revertsOnSecondBind() public {
+        settlement.bindLiquidationKeeper(address(0x1));
+        vm.expectRevert(
+            abi.encodeWithSelector(SettlementEngine.LiquidationKeeperAlreadyBound.selector, address(0x1))
+        );
+        settlement.bindLiquidationKeeper(address(0x2));
+    }
+
+    function test_forceClose_revertsWhenCallerIsNotKeeper() public {
+        _openOneBtcAt65k();
+        settlement.bindLiquidationKeeper(address(0x1));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(SettlementEngine.OnlyLiquidationKeeper.selector, address(this))
+        );
+        settlement.forceClose(aliceAccount, btcMarket, PRICE_66K);
+    }
+
     function test_tickOpensLongAndShortAndLocksMargin() public {
         _openOneBtcAt65k();
 
-        SettlementEngine.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
-        SettlementEngine.Position memory bobPosition = settlement.positionOf(bobAccount, btcMarket);
+        ISettlement.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
+        ISettlement.Position memory bobPosition = settlement.positionOf(bobAccount, btcMarket);
 
         assertEq(alicePosition.size, ONE_BTC_SIGNED);
         assertEq(bobPosition.size, -ONE_BTC_SIGNED);
@@ -148,7 +182,7 @@ contract SettlementEngineTest is Test {
         book.submitOrder(sell, _sign(CAROL_PK, sell));
         book.tick();
 
-        SettlementEngine.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
+        ISettlement.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
         assertEq(alicePosition.size, 2 * ONE_BTC_SIGNED);
         assertEq(alicePosition.entryPrice, 65_500_00000000);
         assertEq(alicePosition.lockedMargin, 13_100_000_000);
@@ -164,7 +198,7 @@ contract SettlementEngineTest is Test {
         book.submitOrder(sell, _sign(ALICE_PK, sell));
         book.tick();
 
-        SettlementEngine.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
+        ISettlement.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
         assertEq(alicePosition.size, ONE_BTC_SIGNED / 2);
         assertEq(alicePosition.entryPrice, PRICE_65K);
         assertEq(alicePosition.lockedMargin, 3_250_000_000);
@@ -181,7 +215,7 @@ contract SettlementEngineTest is Test {
         book.submitOrder(sell, _sign(ALICE_PK, sell));
         book.tick();
 
-        SettlementEngine.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
+        ISettlement.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
         assertEq(alicePosition.size, 0);
         assertEq(alicePosition.entryPrice, 0);
         assertEq(alicePosition.lockedMargin, 0);
@@ -198,7 +232,7 @@ contract SettlementEngineTest is Test {
         book.submitOrder(sell, _sign(ALICE_PK, sell));
         book.tick();
 
-        SettlementEngine.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
+        ISettlement.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
         assertEq(alicePosition.size, -ONE_BTC_SIGNED);
         assertEq(alicePosition.entryPrice, PRICE_66K);
         assertEq(alicePosition.lockedMargin, 6_600_000_000);
@@ -215,7 +249,7 @@ contract SettlementEngineTest is Test {
         book.submitOrder(sell, _sign(ALICE_PK, sell));
         book.tick();
 
-        SettlementEngine.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
+        ISettlement.Position memory alicePosition = settlement.positionOf(aliceAccount, btcMarket);
         assertEq(alicePosition.size, ONE_BTC_SIGNED / 2);
     }
 

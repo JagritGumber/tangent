@@ -17,14 +17,10 @@ contract SettlementEngine is ISettlement {
     IOrderBook public immutable orderBook;
     IUSDCVault public immutable vault;
     IMarketRegistry public immutable markets;
+    address public immutable liquidationKeeperBinder;
+    address public liquidationKeeper;
 
-    struct Position {
-        int256 size;
-        uint256 entryPrice;
-        uint256 lockedMargin;
-    }
-
-    mapping(uint256 accountId => mapping(uint256 marketId => Position)) private _positions;
+    mapping(uint256 accountId => mapping(uint256 marketId => ISettlement.Position)) private _positions;
 
     event PositionUpdated(
         uint256 indexed accountId,
@@ -36,11 +32,15 @@ contract SettlementEngine is ISettlement {
 
     error ZeroAddress();
     error OnlyOrderBook(address caller);
+    error OnlyLiquidationKeeper(address caller);
+    error OnlyLiquidationKeeperBinder(address caller, address binder);
+    error LiquidationKeeperAlreadyBound(address current);
     error InvalidMatch();
     error UnknownOrder(bytes32 orderHash);
     error OrderMismatch(bytes32 orderHash);
     error PausedMarket(uint256 marketId);
     error ReduceOnlyViolation(uint256 accountId, uint256 marketId);
+    error NoPosition(uint256 accountId, uint256 marketId);
     error Int256Overflow(uint256 value);
 
     constructor(address _orderBook, address _vault, address _markets) {
@@ -50,6 +50,19 @@ contract SettlementEngine is ISettlement {
         orderBook = IOrderBook(_orderBook);
         vault = IUSDCVault(_vault);
         markets = IMarketRegistry(_markets);
+        liquidationKeeperBinder = msg.sender;
+    }
+
+    /// @notice One-shot liquidation keeper wiring. The keeper can force-close
+    ///         underwater positions; changing it after deployment would be an
+    ///         upgrade path over all positions, so the binding is immutable.
+    function bindLiquidationKeeper(address keeper) external {
+        if (msg.sender != liquidationKeeperBinder) {
+            revert OnlyLiquidationKeeperBinder(msg.sender, liquidationKeeperBinder);
+        }
+        if (keeper == address(0)) revert ZeroAddress();
+        if (liquidationKeeper != address(0)) revert LiquidationKeeperAlreadyBound(liquidationKeeper);
+        liquidationKeeper = keeper;
     }
 
     /// @inheritdoc ISettlement
@@ -61,8 +74,39 @@ contract SettlementEngine is ISettlement {
         }
     }
 
-    function positionOf(uint256 accountId, uint256 marketId) external view returns (Position memory) {
+    function positionOf(uint256 accountId, uint256 marketId)
+        external
+        view
+        override
+        returns (ISettlement.Position memory)
+    {
         return _positions[accountId][marketId];
+    }
+
+    /// @inheritdoc ISettlement
+    function forceClose(uint256 accountId, uint256 marketId, uint256 price)
+        external
+        override
+        returns (int256 pnl)
+    {
+        if (msg.sender != liquidationKeeper) revert OnlyLiquidationKeeper(msg.sender);
+        if (price == 0) revert InvalidMatch();
+
+        ISettlement.Position storage p = _positions[accountId][marketId];
+        if (p.size == 0) revert NoPosition(accountId, marketId);
+
+        uint256 closeSize = _abs(p.size);
+        pnl = _realizedPnl(p.size, closeSize, p.entryPrice, price);
+        uint256 released = p.lockedMargin;
+
+        if (released != 0) vault.releaseMargin(accountId, released);
+        if (pnl != 0) vault.applyPnL(accountId, pnl);
+
+        p.size = 0;
+        p.entryPrice = 0;
+        p.lockedMargin = 0;
+
+        emit PositionUpdated(accountId, marketId, 0, 0, 0);
     }
 
     function _settle(Match calldata m) internal {
@@ -120,7 +164,7 @@ contract SettlementEngine is ISettlement {
         uint256 price,
         uint16 initialMarginBps
     ) internal {
-        Position storage p = _positions[accountId][marketId];
+        ISettlement.Position storage p = _positions[accountId][marketId];
 
         if (p.size == 0 || _sameSign(p.size, delta)) {
             _increase(p, accountId, marketId, delta, price, initialMarginBps);
@@ -158,7 +202,7 @@ contract SettlementEngine is ISettlement {
     }
 
     function _increase(
-        Position storage p,
+        ISettlement.Position storage p,
         uint256 accountId,
         uint256 marketId,
         int256 delta,

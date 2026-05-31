@@ -7,6 +7,16 @@ pragma solidity ^0.8.26;
 ///         anyone can call; direct settlement is restricted to the book so
 ///         fills and book state remain atomic.
 interface ISettlement {
+    /// @notice Account position in a single market.
+    /// @param  size          Signed base size. Positive = long, negative = short.
+    /// @param  entryPrice    Average entry price in PRICE_SCALE units.
+    /// @param  lockedMargin  USDC margin locked against the position.
+    struct Position {
+        int256 size;
+        uint256 entryPrice;
+        uint256 lockedMargin;
+    }
+
     /// @notice A single matched fill between two opposing orders.
     /// @param  buyOrderHash    Hash of the buy-side order (long entry or short close).
     /// @param  sellOrderHash   Hash of the sell-side order (short entry or long close).
@@ -37,4 +47,11 @@ interface ISettlement {
     /// @notice Settle a batch of matches from the bound OrderBook. Reverts the
     ///         whole batch on any invalid match or margin failure.
     function settleBatch(Match[] calldata matches) external;
+
+    /// @notice Current position for an account in a market.
+    function positionOf(uint256 accountId, uint256 marketId) external view returns (Position memory);
+
+    /// @notice Liquidation hook callable only by the bound LiquidationKeeper.
+    ///         Closes the entire position at mark price and realizes PnL.
+    function forceClose(uint256 accountId, uint256 marketId, uint256 price) external returns (int256 pnl);
 }

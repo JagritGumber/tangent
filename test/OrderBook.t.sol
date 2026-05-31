@@ -34,6 +34,14 @@ contract MockSettlement is ISettlement {
     function lastMatch(uint256 index) external view returns (Match memory) {
         return _lastMatches[index];
     }
+
+    function positionOf(uint256, uint256) external pure override returns (Position memory) {
+        return Position({size: 0, entryPrice: 0, lockedMargin: 0});
+    }
+
+    function forceClose(uint256, uint256, uint256) external pure override returns (int256) {
+        return 0;
+    }
 }
 
 contract OrderBookTest is Test {

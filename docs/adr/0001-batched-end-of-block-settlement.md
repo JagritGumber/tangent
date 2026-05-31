@@ -22,7 +22,7 @@ Tangent ships batched end-of-block matching. Specifically:
 
 - `OrderBook.submitOrder` validates the EIP-712 signature, checks nonce / expiry / market state, and stores the order in contract state without attempting to match it.
 - `OrderBook.tick()` is permissionless. Anyone can call it. The first caller per block walks the resting book once with price-time priority, emits `Matched` events for each fill, and hands the match set off to `SettlementEngine.settleBatch` in the same transaction.
-- `SettlementEngine.settleBatch` is itself permissionless (see ADR 0002 for the related account-onboarding decision). It validates that the orders were emitted by the bound `OrderBook` within the current settlement window, checks margin and liquidation health, and atomically applies position changes + collateral transfers via the `USDCVault` hooks.
+- `SettlementEngine.settleBatch` is callable only by the bound `OrderBook`. System-level permissionlessness comes from `tick()` being public; restricting direct settlement keeps fills and book state atomic without a richer proof path.
 - A keeper bot can call `tick()` on every block for a small fee paid out of the matched orders' funding pool. In the absence of a keeper, any trader who needs their order matched can call `tick()` themselves.
 
 The matching algorithm itself is deterministic price-time priority: best bid lifts best ask, FIFO within each price level, partial fills allowed. There is no MEV opportunity in the ordering because all orders submitted in the block are visible to all callers before `tick()` runs.
