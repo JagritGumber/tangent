@@ -1,12 +1,12 @@
 # Deploy to Arc Testnet via Circle Smart Contract Platform
 
-This runbook deploys the three v0.1 contracts (`AccountManager`, `USDCVault`, `MarketRegistry`) to Arc Testnet via Circle Smart Contract Platform's web UI. No local Foundry or private key handling required.
+This runbook documents the earlier three-contract v0.1 primitive deployment (`AccountManager`, `USDCVault`, `MarketRegistry`) to Arc Testnet via Circle Smart Contract Platform's web UI. The full local v0.6 stack now deploys through `script/Deploy.s.sol` until this runbook is expanded for `OrderBook`, `SettlementEngine`, and `LiquidationKeeper`.
 
 ## Prerequisites
 
 - Circle account with access to Smart Contract Platform.
 - A Circle Developer-Controlled Wallet on Arc Testnet with some testnet gas.
-- The deploy artifacts bundle: download from the latest green `solidity` workflow run on GitHub Actions (https://github.com/JagritGumber/arc-perp-reference/actions/workflows/solidity.yml). Look for the `tangent-deploy-artifacts` artifact at the bottom of the run page.
+- Deploy artifacts generated from this checkout with `forge build` or flattened sources generated with your preferred Solidity flattening tool.
 
 The bundle contains:
 
@@ -27,7 +27,7 @@ deploy-artifacts/
 
 - **Arc Testnet chain ID**: `11111`
 - **USDC on Arc Testnet**: `0x3600000000000000000000000000000000000000`
-- **Solidity version used**: `0.8.24` (see `foundry.toml`)
+- **Solidity version used**: `0.8.26` (see `foundry.toml`)
 - **Optimizer**: enabled, 200 runs
 
 ## Deploy order

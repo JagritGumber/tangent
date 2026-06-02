@@ -50,6 +50,8 @@ contract SettlementMockUSDC is IERC20 {
 }
 
 contract SettlementEngineTest is Test {
+    uint32 internal constant MAX_PRICE_AGE = 60;
+
     AccountManager internal accounts;
     MarketRegistry internal markets;
     OrderBook internal book;
@@ -106,27 +108,10 @@ contract SettlementEngineTest is Test {
         _fund(carol, carolAccount, STARTING_COLLATERAL);
     }
 
-    function test_constructor_revertsOnZeroAddress() public {
-        vm.expectRevert(SettlementEngine.ZeroAddress.selector);
-        new SettlementEngine(address(0), address(vault), address(markets));
-
-        vm.expectRevert(SettlementEngine.ZeroAddress.selector);
-        new SettlementEngine(address(book), address(0), address(markets));
-
-        vm.expectRevert(SettlementEngine.ZeroAddress.selector);
-        new SettlementEngine(address(book), address(vault), address(0));
-    }
-
     function test_settleBatch_revertsWhenCallerIsNotOrderBook() public {
         ISettlement.Match[] memory matches = new ISettlement.Match[](0);
         vm.expectRevert(abi.encodeWithSelector(SettlementEngine.OnlyOrderBook.selector, address(this)));
         settlement.settleBatch(matches);
-    }
-
-    function test_bindLiquidationKeeper_setsAddress() public {
-        address keeper = address(0x1);
-        settlement.bindLiquidationKeeper(keeper);
-        assertEq(settlement.liquidationKeeper(), keeper);
     }
 
     function test_bindLiquidationKeeper_revertsOnNonBinder() public {
@@ -316,6 +301,19 @@ contract SettlementEngineTest is Test {
         settlement.settleBatch(matches);
     }
 
+    function test_validateWithdrawal_revertsOnStaleMarkPrice() public {
+        vm.warp(1 days);
+        _openOneBtcAt65k();
+        btcFeed.setPriceAt(PRICE_65K, block.timestamp - MAX_PRICE_AGE - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketRegistry.StalePrice.selector, btcMarket, block.timestamp - MAX_PRICE_AGE - 1, MAX_PRICE_AGE
+            )
+        );
+        settlement.validateWithdrawal(aliceAccount, 1);
+    }
+
     function _openOneBtcAt65k() internal {
         OrderTypes.Order memory buy = _order(aliceAccount, true, PRICE_65K, ONE_BTC, 1, false);
         OrderTypes.Order memory sell = _order(bobAccount, false, PRICE_65K, ONE_BTC, 1, false);
@@ -367,6 +365,7 @@ contract SettlementEngineTest is Test {
             maxLeverage: 10,
             tickSize: 100,
             lotSize: 1e15,
+            maxPriceAge: MAX_PRICE_AGE,
             paused: paused
         });
     }

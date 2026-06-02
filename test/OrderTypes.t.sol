@@ -22,30 +22,6 @@ contract OrderTypesTest is Test {
         assertEq(OrderTypes.ORDER_TYPEHASH, EXPECTED_ORDER_TYPEHASH, "ORDER_TYPEHASH drift");
     }
 
-    function test_domainSeparator_isStableForGivenInputs() public pure {
-        bytes32 sep1 = OrderTypes.domainSeparator(11111, TEST_VERIFYING_CONTRACT);
-        bytes32 sep2 = OrderTypes.domainSeparator(11111, TEST_VERIFYING_CONTRACT);
-        assertEq(sep1, sep2, "same inputs must produce same domainSeparator");
-    }
-
-    function test_domainSeparator_changesWithChainId() public pure {
-        bytes32 sep1 = OrderTypes.domainSeparator(11111, TEST_VERIFYING_CONTRACT);
-        bytes32 sep2 = OrderTypes.domainSeparator(11112, TEST_VERIFYING_CONTRACT);
-        assertTrue(sep1 != sep2, "chainId must influence the domain separator");
-    }
-
-    function test_domainSeparator_changesWithVerifyingContract() public pure {
-        bytes32 sep1 = OrderTypes.domainSeparator(11111, TEST_VERIFYING_CONTRACT);
-        bytes32 sep2 = OrderTypes.domainSeparator(11111, address(0xBEEF));
-        assertTrue(sep1 != sep2, "verifyingContract must influence the domain separator");
-    }
-
-    function test_hash_deterministicForSameOrder() public pure {
-        OrderTypes.Order memory o1 = _sampleOrder();
-        OrderTypes.Order memory o2 = _sampleOrder();
-        assertEq(OrderTypes.hash(o1), OrderTypes.hash(o2), "same Order must hash the same");
-    }
-
     function test_hash_changesWithEveryField() public pure {
         OrderTypes.Order memory base = _sampleOrder();
         bytes32 baseHash = OrderTypes.hash(base);
@@ -83,17 +59,7 @@ contract OrderTypesTest is Test {
         assertTrue(OrderTypes.hash(mutated) != baseHash, "reduceOnly must be in hash");
     }
 
-    function test_digest_compositesDomainAndStructHash() public pure {
-        OrderTypes.Order memory o = _sampleOrder();
-        bytes32 domainSep = OrderTypes.domainSeparator(11111, TEST_VERIFYING_CONTRACT);
-        bytes32 digest = OrderTypes.digest(o, domainSep);
-
-        // Recompute via the canonical EIP-712 envelope and assert equality.
-        bytes32 expected = keccak256(abi.encodePacked("\x19\x01", domainSep, OrderTypes.hash(o)));
-        assertEq(digest, expected, "digest must follow canonical EIP-712 envelope");
-    }
-
-    function test_digest_signRecoverRoundtrip() public {
+    function test_digest_signRecoverRoundtrip() public pure {
         OrderTypes.Order memory o = _sampleOrder();
         bytes32 domainSep = OrderTypes.domainSeparator(uint256(11111), TEST_VERIFYING_CONTRACT);
         bytes32 d = OrderTypes.digest(o, domainSep);

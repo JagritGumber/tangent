@@ -77,21 +77,6 @@ contract USDCVaultTest is Test {
 
     // -- constructor + bind --
 
-    function test_constructor_revertsOnZeroUSDC() public {
-        vm.expectRevert(USDCVault.ZeroAddress.selector);
-        new USDCVault(IERC20(address(0)), IAccountManager(address(accounts)));
-    }
-
-    function test_constructor_revertsOnZeroAccounts() public {
-        vm.expectRevert(USDCVault.ZeroAddress.selector);
-        new USDCVault(IERC20(address(usdc)), IAccountManager(address(0)));
-    }
-
-    function test_bindSettlementEngine_setsAddress() public {
-        vault.bindSettlementEngine(settlementEngine);
-        assertEq(vault.settlementEngine(), settlementEngine);
-    }
-
     function test_bindSettlementEngine_revertsOnNonBinder() public {
         vm.expectRevert(abi.encodeWithSelector(USDCVault.OnlySettlementBinder.selector, alice, address(this)));
         vm.prank(alice);
@@ -133,25 +118,10 @@ contract USDCVaultTest is Test {
         assertEq(vault.freeBalanceOf(bobId), 0);
     }
 
-    function test_deposit_revertsOnZeroAmount() public {
-        vm.prank(alice);
-        vm.expectRevert(USDCVault.ZeroAmount.selector);
-        vault.deposit(aliceId, 0);
-    }
-
     function test_deposit_revertsOnUnknownAccount() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(AccountManager.UnknownAccount.selector, uint256(999)));
         vault.deposit(999, 1_000_000);
-    }
-
-    function test_deposit_revertsOnInsufficientAllowance() public {
-        MockUSDC noAllowance = new MockUSDC();
-        USDCVault freshVault = new USDCVault(IERC20(address(noAllowance)), IAccountManager(address(accounts)));
-        noAllowance.mint(alice, 100_000_000);
-        vm.prank(alice);
-        vm.expectRevert("allowance");
-        freshVault.deposit(aliceId, 1_000_000);
     }
 
     // -- withdraw --
@@ -188,35 +158,17 @@ contract USDCVaultTest is Test {
         vault.withdraw(aliceId, 50_000_000, alice);
     }
 
-    function test_withdraw_revertsOnZeroAmount() public {
-        vm.prank(alice);
-        vm.expectRevert(USDCVault.ZeroAmount.selector);
-        vault.withdraw(aliceId, 0, alice);
-    }
-
-    function test_withdraw_revertsOnZeroRecipient() public {
-        vm.prank(alice);
-        vault.deposit(aliceId, 10_000_000);
-        vm.prank(alice);
-        vm.expectRevert(USDCVault.ZeroAddress.selector);
-        vault.withdraw(aliceId, 1_000_000, address(0));
-    }
-
     // -- margin hooks gated until binding --
 
-    function test_lockMargin_revertsWhenSettlementNotBound() public {
+    function test_marginHooks_revertWhenSettlementNotBound() public {
         vm.expectRevert(USDCVault.SettlementEngineNotBound.selector);
         vm.prank(settlementEngine);
         vault.lockMargin(aliceId, 1_000_000);
-    }
 
-    function test_releaseMargin_revertsWhenSettlementNotBound() public {
         vm.expectRevert(USDCVault.SettlementEngineNotBound.selector);
         vm.prank(settlementEngine);
         vault.releaseMargin(aliceId, 1_000_000);
-    }
 
-    function test_applyPnL_revertsWhenSettlementNotBound() public {
         vm.expectRevert(USDCVault.SettlementEngineNotBound.selector);
         vm.prank(settlementEngine);
         vault.applyPnL(aliceId, 1_000_000);

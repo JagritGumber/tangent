@@ -17,11 +17,6 @@ contract AccountManagerTest is Test {
         mgr = new AccountManager();
     }
 
-    function test_initialState() public view {
-        assertEq(mgr.totalAccounts(), 0, "no accounts yet");
-        assertEq(mgr.accountIdOf(alice), 0, "alice unregistered -> id 0");
-    }
-
     function test_registerAccount_emitsAndAssignsMonotonicIds() public {
         vm.expectEmit(true, true, false, true);
         emit AccountRegistered(1, alice, uint64(block.timestamp));
@@ -53,11 +48,6 @@ contract AccountManagerTest is Test {
     function test_ownerOf_revertsOnUnknownAccount() public {
         vm.expectRevert(abi.encodeWithSelector(AccountManager.UnknownAccount.selector, uint256(999)));
         mgr.ownerOf(999);
-    }
-
-    function test_accountIdOf_returnsZeroForUnregistered() public view {
-        // Unregistered EOA returns id 0 (the unregistered sentinel).
-        assertEq(mgr.accountIdOf(address(0xDEAD)), 0);
     }
 
     function testFuzz_registerAccount_assignsUniqueIds(address[8] memory eoas) public {

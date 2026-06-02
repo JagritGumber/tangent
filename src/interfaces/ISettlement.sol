@@ -51,6 +51,13 @@ interface ISettlement {
     /// @notice Current position for an account in a market.
     function positionOf(uint256 accountId, uint256 marketId) external view returns (Position memory);
 
+    /// @notice Aggregate account equity and maintenance margin across all
+    ///         open positions tracked by settlement.
+    function marginState(uint256 accountId)
+        external
+        view
+        returns (int256 equity, uint256 maintenanceMargin);
+
     /// @notice Liquidation hook callable only by the bound LiquidationKeeper.
     ///         Closes the entire position at mark price and realizes PnL.
     function forceClose(uint256 accountId, uint256 marketId, uint256 price) external returns (int256 pnl);

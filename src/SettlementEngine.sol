@@ -87,6 +87,16 @@ contract SettlementEngine is ISettlement {
     }
 
     /// @inheritdoc ISettlement
+    function marginState(uint256 accountId)
+        external
+        view
+        override
+        returns (int256 equity, uint256 maintenanceMargin)
+    {
+        return _marginStateAfterWithdrawal(accountId, 0);
+    }
+
+    /// @inheritdoc ISettlement
     function forceClose(uint256 accountId, uint256 marketId, uint256 price)
         external
         override

@@ -121,7 +121,7 @@ flowchart TB
 #### MarketRegistry (`src/MarketRegistry.sol`, v0.3 target)
 
 - **Responsibility.** Catalogue of tradeable perp markets. Binds a base symbol to its price oracle and risk parameters.
-- **State held.** `totalMarkets` counter, `_markets[id] → Market` struct (symbol, priceFeed, initialMarginBps, maintMarginBps, maxLeverage, tickSize, lotSize, paused).
+- **State held.** `totalMarkets` counter, `_markets[id] → Market` struct (symbol, priceFeed, initialMarginBps, maintMarginBps, maxLeverage, tickSize, lotSize, maxPriceAge, paused).
 - **Public API.** `registerMarket(Market)`, `updateMarketParams(id, Market)`, `setPaused(id, bool)`, `market(id) → Market`, `markPrice(id) → uint256`, `totalMarkets()`. Events: `MarketRegistered`, `MarketParamsUpdated`, `MarketPaused`.
 - **Dependencies.** Oracle adapter (Pyth on Arc in v0.3; Chainlink fallback if/when available).
 - **Trust model.** Admin-controlled in v0.1–v1.0 (governance multisig curates markets and risk params). Permissionless with bond + slashing in v1.1.
@@ -143,16 +143,16 @@ flowchart TB
 - **Public API.** `submitOrder(Order, signature)`, `cancelOrder(orderHash)`, `tick()`, `isLive(orderHash) → bool`, `orderOf(orderHash) → (Order, exists)`, `bindSettlementEngine(engine)`. Events: `OrderSubmitted`, `OrderCancelled`, `Matched`.
 - **Dependencies.** `AccountManager` (signer recovery via `ownerOf`), `MarketRegistry` (tick/lot validation, paused check), `SettlementEngine` (one-shot-bound handoff). EIP-712 domain `"Tangent v1"` (see `src/types/OrderTypes.sol`).
 - **Trust model.** Trustless for submit and cancel. Keeper-dependent for tick latency (anyone can tick once SettlementEngine is bound, but a keeper is expected to call regularly). The matching algorithm is deterministic price-time priority, but because `tick()` is still a normal EVM transaction, ADR 0001's end-of-block MEV claim is an architectural target rather than a property fully enforced by v0.4 alone.
-- **Forkability angle.** The matching engine is reusable for any orderbook market on Arc (spot, options, prediction markets), not just perps. The batched end-of-block pattern is generalizable to any high-MEV-risk venue. EIP-712 domain is the only Arc-perp-specific binding.
+- **Forkability angle.** The matching engine is reusable for any orderbook market on Arc (spot, options, prediction markets), not just perps. The deterministic batched-settlement pattern is generalizable to high-MEV-risk venues. EIP-712 domain is the only Arc-perp-specific binding.
 
 #### SettlementEngine (`src/SettlementEngine.sol`, shipped locally in v0.5)
 
-- **Responsibility.** Minimal matched-order settlement. Validates book-produced matches, mutates isolated positions, locks/releases initial margin through `USDCVault`, applies realized PnL, validates post-withdrawal maintenance health, enforces reduce-only, and emits `Settled` / `PositionUpdated`.
+- **Responsibility.** Minimal matched-order settlement. Validates book-produced matches, mutates per-account/per-market positions, locks/releases per-position initial margin through `USDCVault`, applies realized PnL, validates aggregate account maintenance health, enforces reduce-only, and emits `Settled` / `PositionUpdated`.
 - **State held.** `_positions[accountId][marketId] → Position {size (int256, signed), entryPrice, lockedMargin}` plus per-account touched-market lists used for aggregate maintenance checks.
 - **Public API.** `settleBatch(Match[])` callable only by the bound `OrderBook`; `positionOf(accountId, marketId) → Position`; `validateWithdrawal(accountId, amount)`.
 - **Dependencies.** `OrderBook` (trusted match producer + order metadata), `USDCVault` (lockMargin / releaseMargin / applyPnL), `MarketRegistry` (risk params and pause defense).
 - **Trust model.** Permissionless at the system level through public `OrderBook.tick()`. Direct arbitrary `settleBatch` is intentionally not supported in v0.5 because it would need a richer proof or book-state mutation path to avoid fill/book drift.
-- **Forkability angle.** The position-accounting + isolated-margin core is reusable for other leveraged products. Funding, liquidation, portfolio margin, and direct proof-based settlement remain additive future layers.
+- **Forkability angle.** The position-accounting + account-margin core is reusable for other leveraged products. Funding, richer portfolio margin, and direct proof-based settlement remain additive future layers.
 
 #### LiquidationKeeper (`src/LiquidationKeeper.sol`, shipped locally in v0.6)
 
@@ -161,7 +161,7 @@ flowchart TB
 - **Public API.** `liquidate(accountId, marketId)`, `isLiquidatable(accountId, marketId) → bool`, `liquidationState(accountId, marketId) → (liquidatable, equity, maintenanceMargin)`. Events: `Liquidated`.
 - **Dependencies.** `SettlementEngine` (forced position close + PnL apply), `MarketRegistry` (mark price + maintMarginBps), `USDCVault` (account collateral balance).
 - **Trust model.** Trustless. Invalid liquidation calls revert. No `LIQUIDATION_ROLE`; anyone can close an underwater position. Liquidator bounty payout is intentionally deferred until the vault has a minimal, auditable payout hook.
-- **Forkability angle.** The close-at-mark pattern is reusable for any isolated-margin leveraged product. Bounty economics and insurance-fund routing can be added without changing the basic liquidation predicate.
+- **Forkability angle.** The close-at-mark pattern is reusable for any account-margin leveraged product. Bounty economics and insurance-fund routing can be added without changing the basic liquidation predicate.
 
 ### 2.2 Off-chain Rust components
 
@@ -290,7 +290,7 @@ sequenceDiagram
     OB->>OB: _orders[hash] = OrderState{status: Live, ...}
     OB-->>Agent: emit OrderSubmitted
 
-    Note over OB,K: Order rests in book until end-of-block
+    Note over OB,K: Order rests in book until tick()
 
     K->>OB: tick() (next block boundary)
     OB->>OB: walk price-time priority queues
@@ -547,10 +547,11 @@ classDiagram
 | Field | Type | Notes |
 |---|---|---|
 | `symbol` | `string` | e.g. "BTC", "ETH", "SOL" |
-| `priceFeed` | `address` | Pyth feed on Arc; queried at settle + liquidation time |
+| `priceFeed` | `address` | Oracle adapter on Arc; queried at settlement health + liquidation time |
+| `maxPriceAge` | `uint32` | Maximum accepted oracle age in seconds |
 | `initialMarginBps` | `uint16` | e.g. 1000 = 10% (10x max leverage at entry) |
 | `maintMarginBps` | `uint16` | e.g. 500 = 5%; below this → liquidatable |
-| `maxLeverage` | `uint8` | Hard cap independent of margin math |
+| `maxLeverage` | `uint8` | Human-readable leverage cap; registry requires `initialMarginBps` to be high enough for this cap |
 | `tickSize` | `uint256` | Minimum price increment, in `PRICE_SCALE` (1e8) |
 | `lotSize` | `uint256` | Minimum size increment, in 1e18 base units |
 | `paused` | `bool` | Halts new orders; close-only mode |
@@ -595,14 +596,14 @@ The roadmap is deliberately sliced so each version is independently mergeable, d
 
 | Version | Scope | Depends on | Est. LOC (delta) | Risk / complexity |
 |---|---|---|---|---|
-| **v0.1** *(shipping today)* | Interfaces + `OrderTypes` library + `AccountManager` impl + `USDCVault` impl (deposit/withdraw + margin-hook scaffold + handler-driven invariant fuzz) + `MarketRegistry` impl with admin curation + pluggable `IPriceFeed` adapter (MockPriceFeed for tests, Pyth adapter at deploy) + Deploy wiring all three + ADRs 0001/0002/0003 + full unit/fuzz tests per contract + EIP-712 frozen-typehash tests + end-to-end integration test (register-market → register-account → deposit → mark-price-read → withdraw) | none | ~1,600 Sol + 1,300 test | Low. Three primitives, all production-shaped |
+| **v0.1** *(live deployment)* | Interfaces + `OrderTypes` library + `AccountManager` impl + `USDCVault` impl (deposit/withdraw + margin-hook scaffold + handler-driven invariant fuzz) + `MarketRegistry` impl with admin curation + pluggable `IPriceFeed` adapter (MockPriceFeed for tests; production Arc oracle adapter deferred) + deploy wiring for the three primitive contracts + ADRs 0001/0002/0003 + focused unit/fuzz tests + EIP-712 frozen-typehash tests + end-to-end integration test (register-market → register-account → deposit → mark-price-read → withdraw) | none | ~1,600 Sol + 1,300 test | Low. Three primitives, all production-shaped |
 | **v0.2: Confidential markets via ArcaneVM** | Once Arc enables [ArcaneVM](https://docs.arc.io/arc/concepts/execution-layer) (the confidential execution environment alongside Arc's public EVM), add an opt-in per-market flag for confidential trading where order book state, positions, and PnL are private. Natural fit for institutional traders who need position privacy without leaving Arc. Positioned at v0.2 to signal it's our highest-priority future milestone, not strict implementation order; ships whenever Arc protocol enables ArcaneVM. | ArcaneVM availability on Arc | TBD | Med. Gated on Arc protocol; design work happens in parallel with v0.3–v0.7 implementation |
 | **v0.3: PythPriceFeed adapter + permissionless market discovery hooks** | `PythPriceFeed.sol` adapter conforming to `IPriceFeed` and wrapping Pyth on Arc Testnet, plus event-rich market-listing hooks for the v0.9 permissionless-market path. (MarketRegistry itself already shipped in v0.1; v0.3 fills in the production oracle adapter and the discovery side of the registry.) | v0.1 | ~200 Sol + 200 test | Low. Pyth wrapping is the only unknown |
 | **v0.4: OrderBook** | EIP-712 sig verification, bounded in-memory CLOB scanner, submitOrder / cancelOrder / tick, mandatory settlement-engine handoff, unit tests | v0.1, v0.3 | ~700 Sol + 600 test | Med–High. The matching-engine bug surface is the hardest part of the whole system |
-| **v0.5: SettlementEngine** | Bound-book settlement, isolated position accounting, initial-margin lock/release, realized PnL, withdrawal health validation, reduce-only enforcement, atomic batch revert, integration tests against v0.4 | v0.1, v0.3, v0.4 | ~600 Sol + 700 test | High. The interaction surface with OrderBook + USDCVault is where economic bugs live |
+| **v0.5: SettlementEngine** | Bound-book settlement, per-market position accounting, initial-margin lock/release, aggregate account margin health, realized PnL, withdrawal health validation, reduce-only enforcement, atomic batch revert, integration tests against v0.4 | v0.1, v0.3, v0.4 | ~600 Sol + 700 test | High. The interaction surface with OrderBook + USDCVault is where economic bugs live |
 | **v0.6: LiquidationKeeper** | Permissionless liquidate(), account-collateral health check, mark-price forced close through SettlementEngine, tests for healthy/no-position/underwater paths | v0.1, v0.3, v0.5 | ~250 Sol + 300 test | Med. Logic is small but adversarial; needs heavy fuzzing |
 | **v0.7: Deploy + Arc Testnet** | Full Deploy.s.sol with the full contract wiring order from §7, deployment manifest emission, Arcscan verification, end-to-end shadow trade against real Arc Testnet RPC | v0.1, v0.3–v0.6 | ~200 Sol + ops docs | Med. First touch with Arc Testnet; expect oracle/feed integration drift |
-| **v0.8: Keeper + Rust SDK** | `rust/tangent-keeper` daemon (tick + liquidate), `rust/tangent-sdk` crate (typed-data signing, RPC client, Circle Dev Wallet integration), GitHub Actions Rust CI, crates.io publish | v0.7 | ~2,500 Rust + tests | Med. New language surface; expect alloy ABI codegen friction |
+| **v0.8: Keeper + Rust SDK** | `rust/tangent-keeper` daemon (tick + liquidate), `rust/tangent-sdk` crate (typed-data signing, RPC client, Circle Dev Wallet integration), Rust CI, crates.io publish | v0.7 | ~2,500 Rust + tests | Med. New language surface; expect alloy ABI codegen friction |
 | **v0.9: Sub-accounts + permissionless markets + indexer** | AccountManager sub-account derivation, MarketRegistry permissionless registration with bond + slashing, `rust/tangent-indexer` daemon with Postgres + GraphQL | v0.8 | ~400 Sol + 1,500 Rust | Med–High. Permissionless markets need governance mechanics |
 | **v0.10: ZK-matched orderbook** | `rust/tangent-matcher` with proof generation, `SettlementEngineV2.settleBatchWithProof()` on-chain verifier, opt-in per-market flag for matcher-mode vs on-chain tick-mode | v0.9 | ~800 Sol + 4,000 Rust | High. ZK stack (sp1/risc0) integration is the deepest unknown in the roadmap |
 | **v1.0: Production-hardened** | Earned, not declared. Promoted to `v1.0` after the system has been deployed and used on Arc Testnet (or eventually mainnet) for long enough to demonstrate stability: zero unresolved critical bugs across the contract suite, a meaningful number of accounts onboarded by external builders, the API surface stable across at least one full development cycle, and a security review (formal or community) on the high-risk contracts (OrderBook, SettlementEngine, LiquidationKeeper). | All prior | none | This is the bar for graduating out of v0.x, not a feature scope |
@@ -753,8 +754,8 @@ arc-perp-reference/
 
 - **Role.** Mark price source for `MarketRegistry.markPrice(marketId)` and for `LiquidationKeeper.isLiquidatable`.
 - **Integration shape.** `PythOracleAdapter.sol` wraps the Pyth proxy contract on Arc. Each `Market.priceFeed` stores a Pyth `bytes32` feed ID (BTC/USD = `0xe62df...`, ETH/USD = `0xff61491...`, etc.); the adapter resolves to a price by calling `pyth.getPriceUnsafe(feedId)` and normalizes to `PRICE_SCALE = 1e8`.
-- **Price-update semantics.** Pyth requires a fresh `updatePriceFeeds(updateData)` call to commit a new price on-chain. The keeper bot includes the Pyth VAA update in the same transaction as `tick()` or `liquidate()` when the stored price is staler than the protocol's max age threshold (configurable per market, default 30 seconds).
-- **Failure mode.** Stale-price revert in the adapter forces the caller to bundle a fresh Pyth update or wait. No silent stale reads.
+- **Price-update semantics.** Pyth requires a fresh `updatePriceFeeds(updateData)` call to commit a new price on-chain. The keeper bot includes the Pyth VAA update in the same transaction as `tick()` or `liquidate()` when the stored price is staler than the market's `maxPriceAge`.
+- **Failure mode.** `MarketRegistry.markPrice()` rejects zero, future-dated, or stale oracle responses. Stale-price reverts force the caller to bundle a fresh oracle update or wait. No silent stale reads.
 
 ### 8.2 USDC on Arc
 
@@ -785,9 +786,9 @@ arc-perp-reference/
 
 For each major architectural decision, the alternative considered and why it was rejected.
 
-### 9.1 Batched end-of-block matching vs continuous matching
+### 9.1 Batched matching vs continuous matching
 
-See [ADR 0001](./docs/adr/0001-batched-end-of-block-settlement.md). One-line summary: continuous matching's MEV surface is unacceptable on a leveraged-positions venue; batched-at-block-boundary gets equivalent UX with structurally-eliminated sandwiching, at the cost of ~1 block (~1s) of additional latency.
+See [ADR 0001](./docs/adr/0001-batched-end-of-block-settlement.md). One-line summary: continuous matching's MEV surface is unacceptable on a leveraged-positions venue; batched matching narrows the sandwiching surface and is the target path for protocol-enforced end-of-block execution, at the cost of ~1 block (~1s) of additional latency.
 
 ### 9.2 Permissionless EOA vs Fireblocks-custodied accounts
 
@@ -795,7 +796,7 @@ See [ADR 0002](./docs/adr/0002-permissionless-account-onboarding.md). One-line s
 
 ### 9.3 On-chain CLOB vs off-chain matcher with ZK proofs
 
-**Chosen (v0.4–v1.0):** on-chain CLOB with batched end-of-block matching.
+**Chosen (v0.4–v1.0):** on-chain CLOB with deterministic batched matching.
 **Deferred (v1.2):** Lighter-style off-chain matcher with ZK proofs against on-chain book state.
 
 **Rationale for the split:**
@@ -851,7 +852,7 @@ Items explicitly not yet decided. Listed so forks and the Arc OSS reviewers can 
 |---|---|---|---|
 | 1 | **Insurance fund for socialized losses?** If a liquidation cascade outruns available collateral, who eats the loss? | Likely: socialize across remaining positions in the market (no separate fund in v1.x). | Need real Arc testnet trading data to size risk |
 | 2 | **Maker/taker fee split (revenue model)?** Does the protocol charge fees at all, and if so, to whom? | Likely zero protocol fee in v1.x to keep the reference clean. Optional `feeBps` slot in `Market` that defaults to 0; forks can turn it on. | Governance scope decision |
-| 3 | **Cross-margin across markets?** Currently isolated margin per market via the `Position[accountId][marketId]` shape. | Deferred to post-v1.2. Cross-margin requires a portfolio-level margin engine that's a substantial design exercise. | Architectural; needs its own ADR |
+| 3 | **Portfolio margin across markets?** Current code uses account-level collateral health with per-market positions and per-position initial-margin locks, but no risk offsets between correlated markets. | Deferred to post-v1.2. Portfolio margin requires a dedicated risk engine and its own ADR. | Architectural; needs its own ADR |
 | 4 | **Self-trade prevention?** Should `OrderBook.tick()` skip matches where `buyAccountId == sellAccountId`? | Yes: silent skip in the matching pass, no revert. | Confirm against EIP-712 nonce semantics |
 | 5 | **Order types beyond limit?** Market, stop-loss, take-profit, trigger orders. | Limit-only in v1.0. Trigger orders (stop/TP) are likely a v1.1 add via a `TriggerOrders.sol` companion contract that watches Pyth and submits regular orders. Pure market orders are a synthetic of "limit at extreme price". | Trigger semantics under batched matching need design |
 | 6 | **Sub-account derivation scheme?** Hash-based, counter-based, or address-derived? | Lean: `subAccountId = uint256(keccak256(abi.encode(parentAccountId, subIndex)))` so derivation is pure and predictable off-chain. | v1.1 ADR pending |

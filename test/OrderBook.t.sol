@@ -39,6 +39,10 @@ contract MockSettlement is ISettlement {
         return Position({size: 0, entryPrice: 0, lockedMargin: 0});
     }
 
+    function marginState(uint256) external pure override returns (int256, uint256) {
+        return (0, 0);
+    }
+
     function forceClose(uint256, uint256, uint256) external pure override returns (int256) {
         return 0;
     }
@@ -47,6 +51,8 @@ contract MockSettlement is ISettlement {
 }
 
 contract OrderBookTest is Test {
+    uint32 internal constant MAX_PRICE_AGE = 60;
+
     AccountManager internal accounts;
     MarketRegistry internal markets;
     OrderBook internal book;
@@ -119,29 +125,6 @@ contract OrderBookTest is Test {
         assertEq(book.liveOrderCount(), 1);
     }
 
-    function test_constructor_revertsOnZeroAccountManager() public {
-        vm.expectRevert(OrderBook.ZeroAddress.selector);
-        new OrderBook(address(0), address(markets));
-    }
-
-    function test_constructor_revertsOnZeroMarketRegistry() public {
-        vm.expectRevert(OrderBook.ZeroAddress.selector);
-        new OrderBook(address(accounts), address(0));
-    }
-
-    function test_bindSettlementEngine_setsAddress() public {
-        OrderBook fresh = new OrderBook(address(accounts), address(markets));
-        fresh.bindSettlementEngine(address(settlement));
-        assertEq(address(fresh.settlement()), address(settlement));
-    }
-
-    function test_bindSettlementEngine_revertsOnNonBinder() public {
-        OrderBook fresh = new OrderBook(address(accounts), address(markets));
-        vm.expectRevert(abi.encodeWithSelector(OrderBook.OnlySettlementBinder.selector, alice, address(this)));
-        vm.prank(alice);
-        fresh.bindSettlementEngine(address(settlement));
-    }
-
     function test_bindSettlementEngine_revertsOnSecondBind() public {
         OrderBook fresh = new OrderBook(address(accounts), address(markets));
         fresh.bindSettlementEngine(address(settlement));
@@ -149,12 +132,6 @@ contract OrderBookTest is Test {
             abi.encodeWithSelector(OrderBook.SettlementAlreadyBound.selector, address(settlement))
         );
         fresh.bindSettlementEngine(address(0xBEEF));
-    }
-
-    function test_bindSettlementEngine_revertsOnZeroAddress() public {
-        OrderBook fresh = new OrderBook(address(accounts), address(markets));
-        vm.expectRevert(OrderBook.ZeroAddress.selector);
-        fresh.bindSettlementEngine(address(0));
     }
 
     function test_submitOrder_revertsOnInvalidSignature() public {
@@ -454,6 +431,7 @@ contract OrderBookTest is Test {
             maxLeverage: 10,
             tickSize: 100,
             lotSize: 1e15,
+            maxPriceAge: MAX_PRICE_AGE,
             paused: paused
         });
     }

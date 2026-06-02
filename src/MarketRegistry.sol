@@ -13,15 +13,10 @@ import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 ///         does not care about the admin's identity, only that
 ///         risk-param mutations come from it.
 ///
-/// @dev    Staleness checking is intentionally NOT done at the registry
-///         level. markPrice returns whatever the IPriceFeed adapter
-///         reports. Downstream consumers (SettlementEngine in v0.5,
-///         LiquidationKeeper in v0.6) are responsible for enforcing their
-///         own max-age policy against the (price, publishedAt) pair their
-///         adapter returns. Keeping the registry as a thin lookup means
-///         a fork swapping Pyth for Chainlink or a custom feed does not
-///         need to touch MarketRegistry's logic, only deploy a different
-///         IPriceFeed adapter.
+/// @dev    Staleness checking is enforced at the registry level so every
+///         mark-price consumer fails closed under the same per-market policy.
+///         Oracle adapters remain responsible for normalizing their native
+///         feed data into (PRICE_SCALE price, publishedAt timestamp).
 contract MarketRegistry is IMarketRegistry {
     /// @notice Privileged address allowed to register, update, and pause
     ///         markets. Typically a governance multisig at production
@@ -42,7 +37,12 @@ contract MarketRegistry is IMarketRegistry {
     error InvalidPriceFeed();
     error InvalidMarginParams(uint16 initialBps, uint16 maintBps);
     error InvalidLeverage(uint8 maxLeverage);
+    error InitialMarginBelowMaxLeverage(uint16 initialBps, uint8 maxLeverage, uint16 requiredInitialBps);
     error InvalidTickOrLot(uint256 tickSize, uint256 lotSize);
+    error InvalidMaxPriceAge();
+    error InvalidPrice(uint256 marketId, uint256 price);
+    error InvalidPriceTimestamp(uint256 marketId, uint256 publishedAt);
+    error StalePrice(uint256 marketId, uint256 publishedAt, uint256 maxAge);
     error EmptySymbol();
     error ZeroAddress();
 
@@ -88,14 +88,23 @@ contract MarketRegistry is IMarketRegistry {
     }
 
     /// @inheritdoc IMarketRegistry
-    /// @dev Returns the raw oracle price. Staleness enforcement is the
-    ///      caller's responsibility (typically SettlementEngine and
-    ///      LiquidationKeeper, which need their own per-market max-age
-    ///      policy and would revert on stale reads).
+    /// @dev Reverts when the oracle price is zero, timestamped in the
+    ///      future, or older than the market's maxPriceAge.
     function markPrice(uint256 marketId) external view override returns (uint256) {
         _requireKnownMarket(marketId);
-        IPriceFeed feed = IPriceFeed(_markets[marketId].priceFeed);
-        (uint256 price, /* publishedAt */) = feed.latestPrice();
+        Market storage m = _markets[marketId];
+        IPriceFeed feed = IPriceFeed(m.priceFeed);
+        (uint256 price, uint256 publishedAt) = feed.latestPrice();
+        if (price == 0) revert InvalidPrice(marketId, price);
+        // Oracle freshness is intentionally timestamp-bound.
+        // forge-lint: disable-next-line(block-timestamp)
+        if (publishedAt == 0 || publishedAt > block.timestamp) {
+            revert InvalidPriceTimestamp(marketId, publishedAt);
+        }
+        // forge-lint: disable-next-line(block-timestamp)
+        if (block.timestamp - publishedAt > m.maxPriceAge) {
+            revert StalePrice(marketId, publishedAt, m.maxPriceAge);
+        }
         return price;
     }
 
@@ -119,8 +128,17 @@ contract MarketRegistry is IMarketRegistry {
         if (params.maxLeverage == 0 || params.maxLeverage > 100) {
             revert InvalidLeverage(params.maxLeverage);
         }
+        // Keep the human-readable maxLeverage in sync with the margin math
+        // SettlementEngine actually enforces.
+        uint16 requiredInitialBps = uint16((10_000 + params.maxLeverage - 1) / params.maxLeverage);
+        if (params.initialMarginBps < requiredInitialBps) {
+            revert InitialMarginBelowMaxLeverage(
+                params.initialMarginBps, params.maxLeverage, requiredInitialBps
+            );
+        }
         if (params.tickSize == 0 || params.lotSize == 0) {
             revert InvalidTickOrLot(params.tickSize, params.lotSize);
         }
+        if (params.maxPriceAge == 0) revert InvalidMaxPriceAge();
     }
 }

@@ -8,7 +8,7 @@ Date: 2026-05-25
 `USDCVault` is the only contract in Tangent that holds user funds. It must do three things well:
 
 1. Let any registered account deposit and withdraw USDC without intermediaries.
-2. Expose margin hooks (`lockMargin`, `releaseMargin`, `applyPnL`) that the future `SettlementEngine` (v0.5) can call to enforce position health during trades.
+2. Expose margin hooks (`lockMargin`, `releaseMargin`, `applyPnL`) that `SettlementEngine` can call to enforce position health during trades.
 3. Not be the contract through which someone exfiltrates the entire vault if a bug is found elsewhere in the system.
 
 The Shapeshifter "USDCCollateralVault" on Arc Testnet (`0x75E4FBFBA942A82F0f5CA9663571233823A71f11`) is the contrast point. That vault binds collateral to Fireblocks-custodied accounts via an off-chain provisioning step. The on-chain checks read against an off-chain-mutated mapping. For an autonomous-agent venue this binding is a hard onboarding wall (see ADR 0002). The vault we ship has to break that pattern while remaining safe.
@@ -39,7 +39,7 @@ There is no admin role, no proxy, no upgrade path, no governance vote to change 
 
 **What this gives up:** if the SettlementEngine has a critical bug, the fix is to redeploy `USDCVault` alongside the new `SettlementEngine` and migrate funds. That is a heavier upgrade path than a proxy. For a reference implementation aimed at being forked cleanly, this is the right tradeoff — forks that need an admin upgrade path can add one in their own deployment.
 
-**Time-of-deploy ordering:** the deploy script (`script/Deploy.s.sol`) deploys USDCVault before SettlementEngine in v0.6, then calls `bindSettlementEngine(settlement)` as the final wiring step. Until that final step runs, all margin hooks revert with `SettlementEngineNotBound`. This is verified end-to-end by `test/integration/DepositWithdrawRoundtrip.t.sol::test_v01_marginHooksRevertUntilSettlementBound`.
+**Time-of-deploy ordering:** the deploy script (`script/Deploy.s.sol`) deploys USDCVault before SettlementEngine, then calls `bindSettlementEngine(settlement)` as part of the one-shot wiring. Until that final step runs, all margin hooks revert with `SettlementEngineNotBound`. This is covered in the vault unit tests.
 
 ## Decision 3: Negative PnL absorbs from free first, then locked, then zeros out
 
@@ -96,6 +96,6 @@ where `netPnLApplied` is the *actual* PnL absorbed (after the clamping), not the
 - `src/USDCVault.sol` — the implementation
 - `test/USDCVault.t.sol` — unit + fuzz coverage
 - `test/invariant/VaultInvariants.t.sol` — handler-driven invariant fuzz
-- `test/integration/DepositWithdrawRoundtrip.t.sol` — end-to-end deposit/withdraw + margin-hooks-gated tests
+- `test/integration/DepositWithdrawRoundtrip.t.sol` — end-to-end deposit/withdraw smoke test
 - Shapeshifter CMDT USDCCollateralVault: `0x75E4FBFBA942A82F0f5CA9663571233823A71f11` (Arc Testnet) — the contrast point
 - ADR 0002 — Permissionless account onboarding (why the third-party-deposit decision is consistent with the account model)

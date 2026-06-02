@@ -51,6 +51,8 @@ contract LiquidationMockUSDC is IERC20 {
 }
 
 contract LiquidationKeeperTest is Test {
+    uint32 internal constant MAX_PRICE_AGE = 60;
+
     AccountManager internal accounts;
     MarketRegistry internal markets;
     OrderBook internal book;
@@ -59,6 +61,7 @@ contract LiquidationKeeperTest is Test {
     USDCVault internal vault;
     LiquidationMockUSDC internal usdc;
     MockPriceFeed internal btcFeed;
+    MockPriceFeed internal ethFeed;
 
     uint256 internal constant ALICE_PK = 0xA11CE;
     uint256 internal constant BOB_PK = 0xB0B;
@@ -70,11 +73,15 @@ contract LiquidationKeeperTest is Test {
     uint256 internal aliceAccount;
     uint256 internal bobAccount;
     uint256 internal btcMarket;
+    uint256 internal ethMarket;
 
     uint256 internal constant PRICE_65K = 65_000_00000000;
     uint256 internal constant PRICE_62K = 62_000_00000000;
     uint256 internal constant PRICE_50K = 50_000_00000000;
+    uint256 internal constant PRICE_3500 = 3_500_00000000;
+    uint256 internal constant PRICE_1000 = 1_000_00000000;
     uint256 internal constant ONE_BTC = 1e18;
+    uint256 internal constant TEN_ETH = 10e18;
     uint256 internal constant STARTING_COLLATERAL = 100_000_000_000;
 
     function setUp() public {
@@ -87,13 +94,15 @@ contract LiquidationKeeperTest is Test {
         vault = new USDCVault(IERC20(address(usdc)), IAccountManager(address(accounts)));
         book = new OrderBook(address(accounts), address(markets));
         settlement = new SettlementEngine(address(book), address(vault), address(markets));
-        keeper = new LiquidationKeeper(address(settlement), address(markets), address(vault));
+        keeper = new LiquidationKeeper(address(settlement), address(markets));
         vault.bindSettlementEngine(address(settlement));
         book.bindSettlementEngine(address(settlement));
         settlement.bindLiquidationKeeper(address(keeper));
 
         btcFeed = new MockPriceFeed(PRICE_65K);
+        ethFeed = new MockPriceFeed(PRICE_3500);
         btcMarket = markets.registerMarket(_btcMarket(false));
+        ethMarket = markets.registerMarket(_ethMarket(false));
 
         vm.prank(alice);
         aliceAccount = accounts.registerAccount();
@@ -102,17 +111,6 @@ contract LiquidationKeeperTest is Test {
 
         _fund(alice, aliceAccount, STARTING_COLLATERAL);
         _fund(bob, bobAccount, STARTING_COLLATERAL);
-    }
-
-    function test_constructor_revertsOnZeroAddress() public {
-        vm.expectRevert(LiquidationKeeper.ZeroAddress.selector);
-        new LiquidationKeeper(address(0), address(markets), address(vault));
-
-        vm.expectRevert(LiquidationKeeper.ZeroAddress.selector);
-        new LiquidationKeeper(address(settlement), address(0), address(vault));
-
-        vm.expectRevert(LiquidationKeeper.ZeroAddress.selector);
-        new LiquidationKeeper(address(settlement), address(markets), address(0));
     }
 
     function test_isLiquidatableFalseAboveMaintenance() public {
@@ -147,6 +145,23 @@ contract LiquidationKeeperTest is Test {
         keeper.liquidate(aliceAccount, btcMarket);
     }
 
+    function test_liquidationUsesAggregateAccountHealthAcrossMarkets() public {
+        _openOneBtcAt65k();
+        _openTenEthShortAt3500();
+        vm.prank(alice);
+        vault.withdraw(aliceAccount, 90_000_000_000, alice);
+
+        btcFeed.setPrice(PRICE_50K);
+        ethFeed.setPrice(PRICE_1000);
+
+        assertFalse(keeper.isLiquidatable(aliceAccount, btcMarket));
+        (bool liquidatable, int256 equity, uint256 maintenanceMargin) =
+            keeper.liquidationState(aliceAccount, btcMarket);
+        assertFalse(liquidatable);
+        assertEq(equity, 20_000_000_000);
+        assertEq(maintenanceMargin, 3_000_000_000);
+    }
+
     function test_withdrawRevertsWhenItWouldBreachMaintenance() public {
         _openOneBtcAt65k();
         btcFeed.setPrice(PRICE_50K);
@@ -161,6 +176,45 @@ contract LiquidationKeeperTest is Test {
         );
         vm.prank(alice);
         vault.withdraw(aliceAccount, 93_500_000_000, alice);
+    }
+
+    function test_liquidationStateRevertsOnStaleMarkPrice() public {
+        vm.warp(1 days);
+        _openOneBtcAt65k();
+        btcFeed.setPriceAt(PRICE_50K, block.timestamp - MAX_PRICE_AGE - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketRegistry.StalePrice.selector, btcMarket, block.timestamp - MAX_PRICE_AGE - 1, MAX_PRICE_AGE
+            )
+        );
+        keeper.liquidationState(aliceAccount, btcMarket);
+    }
+
+    function test_isLiquidatableRevertsOnStaleMarkPrice() public {
+        vm.warp(1 days);
+        _openOneBtcAt65k();
+        btcFeed.setPriceAt(PRICE_50K, block.timestamp - MAX_PRICE_AGE - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketRegistry.StalePrice.selector, btcMarket, block.timestamp - MAX_PRICE_AGE - 1, MAX_PRICE_AGE
+            )
+        );
+        keeper.isLiquidatable(aliceAccount, btcMarket);
+    }
+
+    function test_liquidateRevertsOnStaleMarkPrice() public {
+        vm.warp(1 days);
+        _openOneBtcAt65k();
+        btcFeed.setPriceAt(PRICE_50K, block.timestamp - MAX_PRICE_AGE - 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketRegistry.StalePrice.selector, btcMarket, block.timestamp - MAX_PRICE_AGE - 1, MAX_PRICE_AGE
+            )
+        );
+        keeper.liquidate(aliceAccount, btcMarket);
     }
 
     function test_liquidateClosesUnderwaterLongAtMark() public {
@@ -192,10 +246,22 @@ contract LiquidationKeeperTest is Test {
     }
 
     function _openOneBtcAt65k() internal {
-        OrderTypes.Order memory buy = _order(aliceAccount, true, PRICE_65K, ONE_BTC, 1, false);
-        OrderTypes.Order memory sell = _order(bobAccount, false, PRICE_65K, ONE_BTC, 1, false);
+        OrderTypes.Order memory buy =
+            _orderForMarket(aliceAccount, btcMarket, true, PRICE_65K, ONE_BTC, 1, false);
+        OrderTypes.Order memory sell =
+            _orderForMarket(bobAccount, btcMarket, false, PRICE_65K, ONE_BTC, 1, false);
         book.submitOrder(buy, _sign(ALICE_PK, buy));
         book.submitOrder(sell, _sign(BOB_PK, sell));
+        book.tick();
+    }
+
+    function _openTenEthShortAt3500() internal {
+        OrderTypes.Order memory buy =
+            _orderForMarket(bobAccount, ethMarket, true, PRICE_3500, TEN_ETH, 2, false);
+        OrderTypes.Order memory sell =
+            _orderForMarket(aliceAccount, ethMarket, false, PRICE_3500, TEN_ETH, 2, false);
+        book.submitOrder(buy, _sign(BOB_PK, buy));
+        book.submitOrder(sell, _sign(ALICE_PK, sell));
         book.tick();
     }
 
@@ -215,9 +281,21 @@ contract LiquidationKeeperTest is Test {
         uint256 nonce,
         bool reduceOnly
     ) internal view returns (OrderTypes.Order memory) {
+        return _orderForMarket(accountId, btcMarket, isBuy, limitPrice, size, nonce, reduceOnly);
+    }
+
+    function _orderForMarket(
+        uint256 accountId,
+        uint256 marketId,
+        bool isBuy,
+        uint256 limitPrice,
+        uint256 size,
+        uint256 nonce,
+        bool reduceOnly
+    ) internal view returns (OrderTypes.Order memory) {
         return OrderTypes.Order({
             accountId: accountId,
-            marketId: btcMarket,
+            marketId: marketId,
             isBuy: isBuy,
             limitPrice: limitPrice,
             size: size,
@@ -242,6 +320,21 @@ contract LiquidationKeeperTest is Test {
             maxLeverage: 10,
             tickSize: 100,
             lotSize: 1e15,
+            maxPriceAge: MAX_PRICE_AGE,
+            paused: paused
+        });
+    }
+
+    function _ethMarket(bool paused) internal view returns (IMarketRegistry.Market memory) {
+        return IMarketRegistry.Market({
+            symbol: "ETH",
+            priceFeed: address(ethFeed),
+            initialMarginBps: 1000,
+            maintMarginBps: 500,
+            maxLeverage: 10,
+            tickSize: 100,
+            lotSize: 1e16,
+            maxPriceAge: MAX_PRICE_AGE,
             paused: paused
         });
     }

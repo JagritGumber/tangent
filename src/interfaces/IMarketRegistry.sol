@@ -12,9 +12,10 @@ interface IMarketRegistry {
     /// @param  priceFeed          Oracle address (Pyth / Chainlink on Arc).
     /// @param  initialMarginBps   Initial margin in basis points (e.g. 1000 = 10%).
     /// @param  maintMarginBps     Maintenance margin in basis points (e.g. 500 = 5%).
-    /// @param  maxLeverage        Maximum leverage allowed at entry (e.g. 10x).
+    /// @param  maxLeverage        Maximum leverage implied by initial margin (e.g. 10x).
     /// @param  tickSize           Minimum price increment in PRICE_SCALE units.
     /// @param  lotSize            Minimum size increment in 1e18 base units.
+    /// @param  maxPriceAge        Maximum accepted oracle age in seconds.
     /// @param  paused             Emergency pause flag; halts new orders but allows close.
     struct Market {
         string symbol;
@@ -24,6 +25,7 @@ interface IMarketRegistry {
         uint8 maxLeverage;
         uint256 tickSize;
         uint256 lotSize;
+        uint32 maxPriceAge;
         bool paused;
     }
 

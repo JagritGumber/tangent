@@ -24,13 +24,13 @@ Four reusable primitives that no current `circlefin/arc-*` repository covers:
 
 1. **Permissionless EOA-registration account model** with optional sub-account factory. No Fireblocks custody binding required. Anyone can call `AccountManager.registerAccount()` and immediately be tradeable.
 
-2. **On-chain CLOB with deterministic end-of-block batched settlement.** Tempo-inspired pattern adapted to Arc's Malachite sub-second finality. Orders accumulate during the block and match atomically at end-of-block, eliminating MEV between order placement and match.
+2. **On-chain CLOB with deterministic batched settlement.** Tempo-inspired pattern adapted to Arc's Malachite sub-second finality. Orders accumulate and are matched atomically through `tick()`. True protocol-enforced end-of-block matching is the target design; the current smart-contract implementation is keeper-triggered and deterministic, but `tick()` is still a normal transaction.
 
 3. **Public EIP-712 order schema** (`Order(accountId, marketId, isBuy, limitPrice, size, nonce, expiry, reduceOnly)`) under EIP-712 domain `"Tangent v1"`. External agent builders can sign orders the matcher will accept without any permissioned binding step.
 
 4. **Permissionless matching path through `tick()`.** Anyone can call `OrderBook.tick()`; the book matches deterministically and calls the bound `SettlementEngine` atomically. There is no external matcher role, and direct settlement is restricted to the book so fills and book state cannot drift.
 
-Plus the supporting infrastructure: standard ERC-20 USDC vault for collateral, Pyth or Chainlink price feeds on Arc for marks, and an on-chain liquidation entry point.
+Plus the supporting infrastructure: a standard ERC-20 USDC vault for collateral, pluggable Arc price-feed adapters for marks, and an on-chain liquidation entry point.
 
 ## Architecture at a glance
 
@@ -49,19 +49,18 @@ Tangent
 
 **v0.1 live on Arc Testnet** (see addresses below). **v0.6 OrderBook + SettlementEngine + LiquidationKeeper implemented locally** and ready for the next deployment. Current code ships:
 
-- `AccountManager.sol`: permissionless EOA registration (5 unit + fuzz tests)
-- `USDCVault.sol`: per-account USDC collateral with deposit/withdraw, settlement-bound maintenance checks on withdrawal, and margin hooks gated until the immutable settlement binder binds SettlementEngine once (20+ unit + fuzz tests + handler-driven invariant fuzz)
-- `MarketRegistry.sol`: admin-curated perp market catalogue with risk params + pluggable `IPriceFeed` oracle adapter (`MockPriceFeed` for tests; Pyth adapter lands at deploy time) (20+ unit + fuzz tests)
+- `AccountManager.sol`: permissionless EOA registration (unit + fuzz coverage)
+- `USDCVault.sol`: per-account USDC collateral with deposit/withdraw, settlement-bound maintenance checks on withdrawal, and margin hooks gated until the immutable settlement binder binds SettlementEngine once (unit + fuzz coverage + handler-driven invariant fuzz)
+- `MarketRegistry.sol`: admin-curated perp market catalogue with risk params, per-market oracle max age, and pluggable `IPriceFeed` oracle adapter (`MockPriceFeed` for tests; production Arc oracle adapter deferred)
 - `OrderBook.sol`: EIP-712 signed order submission, account-owner recovery, nonce protection, market tick/lot validation, owner cancellation, expiry sweep, deterministic price-time matching, partial fills, self-trade skip, pause-aware matching, `Matched` events, bounded live-order count, stored order metadata, and one-shot settlement-engine binding
-- `SettlementEngine.sol`: bound-book settlement, per-account/per-market positions, isolated initial-margin locking, proportional margin release, realized PnL application, reduce-only enforcement, withdrawal health validation, paused-market defense, and atomic batch revert
-- `LiquidationKeeper.sol`: permissionless underwater-position close at mark price using account collateral equity plus unrealized PnL; bounty and insurance-fund routing are deferred
+- `SettlementEngine.sol`: bound-book settlement, per-account/per-market positions, per-position initial-margin locking, aggregate account maintenance checks, proportional margin release, realized PnL application, reduce-only enforcement, withdrawal health validation, paused-market defense, and atomic batch revert
+- `LiquidationKeeper.sol`: permissionless underwater-position close at mark price using the same aggregate account equity and maintenance-margin predicate as withdrawal checks; bounty and insurance-fund routing are deferred
 - `OrderTypes.sol`: EIP-712 `Order` schema under domain `"Tangent v1"` with frozen-typehash + sign/recover tests
 - Interface stubs for the rest: `IPriceFeed`, plus the public `IOrderBook` / `ISettlement` surface used by the local settlement path
 - `script/Deploy.s.sol` wiring AccountManager + USDCVault + MarketRegistry + OrderBook + SettlementEngine + LiquidationKeeper end-to-end with one-shot vault/book/liquidation binding
 - Integration test (`test/integration/DepositWithdrawRoundtrip.t.sol`) proving register market → register account → deposit → mark-price read → withdraw end-to-end against the three shipped contracts
-- GitHub Actions CI (`.github/workflows/solidity.yml`) running `forge build + test + fmt + gas-report` on every push
 - ADRs 0001 (batched end-of-block settlement), 0002 (permissionless account onboarding), 0003 (USDCVault design)
-- Rust workspace at [`rust/`](./rust/) with the [`tangent-sdk`](./rust/tangent-sdk/) crate shipping the canonical EIP-712 `Order` + `DomainSeparatorInput` types so downstream agents (Selbo, CapitalArc, future Arc-native agents) target the same order shape as the on-chain `OrderBook`. Future crates (`tangent-keeper`, `tangent-indexer`, `tangent-matcher`) reserved in the workspace manifest, landing at v0.8 / v0.9 / v0.10 respectively. Rust CI (`cargo fmt + clippy + check + test + run example`) on every push that touches `rust/**`.
+- Rust workspace at [`rust/`](./rust/) with the [`tangent-sdk`](./rust/tangent-sdk/) crate shipping the canonical EIP-712 `Order` + `DomainSeparatorInput` types so downstream agents (Selbo, CapitalArc, future Arc-native agents) target the same order shape as the on-chain `OrderBook`. Future crates (`tangent-keeper`, `tangent-indexer`, `tangent-matcher`) reserved in the workspace manifest, landing at v0.8 / v0.9 / v0.10 respectively.
 
 Read `ARCHITECTURE.md` for the system-wide design, the version roadmap (`v0.2` through `v0.10`, with `v1.0` reserved for the post-production-hardening graduation), and Mermaid diagrams of every key flow.
 
@@ -107,19 +106,19 @@ For forks deploying their own instance of the Tangent primitives, the canonical 
 forge script script/Deploy.s.sol --rpc-url $ARC_RPC --broadcast --verify
 ```
 
-See `script/Deploy.s.sol` for the wiring order. Alternatively, deploy via Circle Smart Contract Platform using the runbook at [`docs/deploy/circle-scp-runbook.md`](./docs/deploy/circle-scp-runbook.md) (no local Foundry required; the GitHub Actions `solidity` workflow ships ready-to-deploy artifacts on every push).
+See `script/Deploy.s.sol` for the wiring order. The Circle Smart Contract Platform runbook at [`docs/deploy/circle-scp-runbook.md`](./docs/deploy/circle-scp-runbook.md) documents the earlier v0.1 primitive deployment path; the full v0.6 stack should use the Foundry deploy script until the SCP runbook is expanded for OrderBook, SettlementEngine, and LiquidationKeeper.
 
 ## Architecture Decision Records
 
 See `docs/adr/` for the design rationale behind:
 
-- **0001, Batched end-of-block settlement.** Why we batch matches at block boundaries instead of continuous matching, and the MEV-protection tradeoff vs throughput.
+- **0001, Batched settlement.** Why we batch matches instead of continuous matching, and the MEV-protection tradeoff vs throughput.
 - **0002, Permissionless account onboarding.** Why we use EOA-registration rather than the Fireblocks-custodied pattern Shapeshifter chose.
 - **0003, USDCVault design.** Why per-account isolated balances + free/locked split + one-shot settlement-engine binding, vs the alternatives.
 
 ## Reference architectures studied
 
-- **Tempo enshrined DEX** (docs.tempo.xyz/guide/stablecoin-dex): inspiration for batched end-of-block settlement, on-chain CLOB, internal balance model. We adopt the batched-settlement pattern but implement as smart contracts rather than an EVM precompile.
+- **Tempo enshrined DEX** (docs.tempo.xyz/guide/stablecoin-dex): inspiration for batched settlement, on-chain CLOB, internal balance model. We adopt the deterministic batched-settlement pattern but implement as smart contracts rather than an EVM precompile.
 - **dYdX v4** (github.com/dydxprotocol/v4-chain): full decentralized matching via validator-run in-memory CLOB. Too heavy as a smart-contract reference but the matching algorithm itself is portable.
 - **Lighter Protocol** (docs.lighter.xyz): off-chain matching + on-chain ZK proof verification. Right long-term scaling path, deferred to v1.2.
 - **Hyperliquid sub-accounts pattern**: master account + N sub-accounts per trader, isolated margin per sub-account. Optional in v1.0.
@@ -131,7 +130,7 @@ See `docs/adr/` for the design rationale behind:
 - Funding payments.
 - ZK-proven off-chain matching (Lighter-style).
 - ERC-4337 SCA account model.
-- Cross-margin across markets (start with isolated margin per market).
+- Portfolio margin/risk offsets across markets. The MVP uses account-level collateral health with per-position initial-margin locks, but no sophisticated offset model.
 - Frontend (this is a reference implementation; consumers build their own UIs).
 
 ## Composability commitments
@@ -140,9 +139,9 @@ Every primitive in this repo is designed to be picked up and reused by other Arc
 
 - `AccountManager` can be forked for any application needing permissionless account registration without custodian binding.
 - The `OrderBook` matching engine works for any orderbook market on Arc, not just perpetuals.
-- The `SettlementEngine` position/margin core is reusable for isolated-margin leveraged products.
-- The batched end-of-block settlement pattern is generalizable to any high-MEV-risk venue on Arc.
-- `LiquidationKeeper`'s close-at-mark predicate is reusable for any isolated-margin leveraged product.
+- The `SettlementEngine` position/margin core is reusable for account-margin leveraged products.
+- The deterministic batched-settlement pattern is generalizable to high-MEV-risk venues on Arc.
+- `LiquidationKeeper`'s close-at-mark predicate is reusable for any account-margin leveraged product.
 - The EIP-712 `Order` schema is meant to be a canonical baseline future Arc perp builders can extend rather than reinvent.
 
 ## License

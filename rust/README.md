@@ -31,7 +31,7 @@ cargo test --workspace
 cargo run -p tangent-sdk --example construct_order
 ```
 
-CI runs all of the above on every push that touches `rust/**`.
+Run the commands above locally until a Rust CI workflow is added to this repository.
 
 ## Why ship the Rust workspace at v0.1 if only one crate has content
 

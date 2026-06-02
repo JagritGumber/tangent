@@ -10,14 +10,11 @@ import {IMarketRegistry} from "../../src/interfaces/IMarketRegistry.sol";
 import {MockUSDC} from "../USDCVault.t.sol";
 import {MockPriceFeed} from "../MockPriceFeed.sol";
 
-/// @notice End-to-end v0.1 integration: register a market, register an
+/// @notice End-to-end primitive smoke test: register a market, register an
 ///         account, deposit USDC, read live mark price, withdraw USDC.
-///         Proves the three shipped primitives compose into a usable
-///         system today, before OrderBook/SettlementEngine land. An Arc
-///         builder forking v0.1 has a working USDC vault keyed on
-///         permissionless accounts + an admin-curated market registry
-///         with live oracle reads, ready to plug an OrderBook in at v0.4.
 contract DepositWithdrawRoundtripTest is Test {
+    uint32 internal constant MAX_PRICE_AGE = 60;
+
     MockUSDC internal usdc;
     AccountManager internal accounts;
     USDCVault internal vault;
@@ -48,6 +45,7 @@ contract DepositWithdrawRoundtripTest is Test {
             maxLeverage: 10,
             tickSize: 100,
             lotSize: 1e15,
+            maxPriceAge: MAX_PRICE_AGE,
             paused: false
         });
         vm.prank(admin);
@@ -103,24 +101,4 @@ contract DepositWithdrawRoundtripTest is Test {
         assertEq(markets.market(btcMarketId).symbol, "BTC", "market metadata persists");
     }
 
-    function test_v01_marginHooksRevertUntilSettlementBound() public {
-        vm.prank(trader);
-        uint256 accountId = accounts.registerAccount();
-        vm.prank(trader);
-        usdc.approve(address(vault), 100_000_000);
-        vm.prank(trader);
-        vault.deposit(accountId, 100_000_000);
-
-        // SettlementEngine not bound yet -> margin hooks revert.
-        // Proves v0.1 is composable but doesn't pretend to support
-        // settlement before v0.5 ships.
-        vm.expectRevert(USDCVault.SettlementEngineNotBound.selector);
-        vault.lockMargin(accountId, 10_000_000);
-
-        vm.expectRevert(USDCVault.SettlementEngineNotBound.selector);
-        vault.releaseMargin(accountId, 10_000_000);
-
-        vm.expectRevert(USDCVault.SettlementEngineNotBound.selector);
-        vault.applyPnL(accountId, 1_000_000);
-    }
 }

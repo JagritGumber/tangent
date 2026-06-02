@@ -41,8 +41,7 @@ contract Deploy is Script {
         OrderBook orderBook = new OrderBook(address(accountManager), address(markets));
         SettlementEngine settlement =
             new SettlementEngine(address(orderBook), address(vault), address(markets));
-        LiquidationKeeper liquidationKeeper =
-            new LiquidationKeeper(address(settlement), address(markets), address(vault));
+        LiquidationKeeper liquidationKeeper = new LiquidationKeeper(address(settlement), address(markets));
         vault.bindSettlementEngine(address(settlement));
         orderBook.bindSettlementEngine(address(settlement));
         settlement.bindLiquidationKeeper(address(liquidationKeeper));
