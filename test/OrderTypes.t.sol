@@ -78,7 +78,7 @@ contract OrderTypesTest is Test {
             marketId: 1,
             isBuy: true,
             limitPrice: 6500000000000, // $65,000 in 1e8 scale
-            size: 1e18, // 1 BTC notional
+            size: 1e18, // 1 BTC base quantity
             nonce: 42,
             expiry: 1717000000,
             reduceOnly: false

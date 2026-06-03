@@ -1,7 +1,6 @@
 //! # tangent-sdk
 //!
-//! Rust SDK for [Tangent](https://github.com/JagritGumber/arc-perp-reference) (repo slug
-//! `arc-perp-reference`, project name **Tangent**).
+//! Rust SDK for [Tangent](https://github.com/JagritGumber/tangent).
 //!
 //! Designed to be the single dependency a downstream agent (Selbo, CapitalArc,
 //! future Arc-native agents) needs to integrate against the on-chain Solidity
@@ -16,7 +15,7 @@
 //! (`TangentClient`), Circle Dev Wallet signing backend, and broadcast
 //! helpers land at v0.8 of the parent repo, alongside the keeper daemon.
 //!
-//! See [`ARCHITECTURE.md`](https://github.com/JagritGumber/arc-perp-reference/blob/main/ARCHITECTURE.md)
+//! See [`ARCHITECTURE.md`](https://github.com/JagritGumber/tangent/blob/main/ARCHITECTURE.md)
 //! for the full system design and roadmap.
 
 #![doc(html_root_url = "https://docs.rs/tangent-sdk")]
@@ -25,4 +24,4 @@ pub mod domain;
 pub mod order;
 
 pub use domain::DomainSeparatorInput;
-pub use order::Order;
+pub use order::{Order, OrderBuilder, OrderConstraints, OrderError, Side, BASE_SCALE, PRICE_SCALE};

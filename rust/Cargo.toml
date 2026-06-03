@@ -14,7 +14,7 @@ edition = "2021"
 rust-version = "1.78"
 license = "MIT"
 authors = ["Jagrit Gumber <jagrit@wearemomentus.com>"]
-repository = "https://github.com/JagritGumber/arc-perp-reference"
+repository = "https://github.com/JagritGumber/tangent"
 description = "Tangent: forkable perpetual-futures DEX reference for Arc Testnet. Off-chain Rust crates that consume the on-chain Solidity primitives in ../src."
 
 [workspace.dependencies]

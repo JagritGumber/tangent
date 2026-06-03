@@ -6,7 +6,7 @@
 //! Run with:
 //!   cargo run --example construct_order -p tangent-sdk
 
-use tangent_sdk::{domain::DomainSeparatorInput, order::Order};
+use tangent_sdk::{DomainSeparatorInput, Order, OrderConstraints, Side, BASE_SCALE, PRICE_SCALE};
 
 fn main() {
     // A long BTC order: 1 BTC notional at $65k limit price.
@@ -14,16 +14,17 @@ fn main() {
     // MarketRegistry.registerMarket. limitPrice is in PRICE_SCALE (1e8) units
     // ($65,000 -> 6_500_000_000_000) and size is in 1e18 base units
     // (1 BTC -> 1_000_000_000_000_000_000). nonce is per-account monotonic.
-    let order = Order::new(
-        7,
-        1,
-        true,
-        6_500_000_000_000,
-        1_000_000_000_000_000_000,
-        1,
-        1_717_000_000,
-        false,
-    );
+    let btc_constraints = OrderConstraints::new(100, 1_000_000_000_000_000);
+    let order = Order::builder()
+        .account_id(7)
+        .market_id(1)
+        .side(Side::Buy)
+        .limit_price(65_000 * PRICE_SCALE)
+        .size(BASE_SCALE)
+        .nonce(1)
+        .expiry(1_717_000_000)
+        .build(btc_constraints, 1_716_999_000)
+        .expect("valid order");
 
     let domain = DomainSeparatorInput::new(11111, [0u8; 20]);
     let verifying_hex = hex::encode(domain.verifying_contract);

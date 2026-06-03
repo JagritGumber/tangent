@@ -10,6 +10,48 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Tangent price scale: 1e8 == $1.
+pub const PRICE_SCALE: u128 = 100_000_000;
+
+/// Tangent base-size scale: 1e18 == 1 base unit.
+pub const BASE_SCALE: u128 = 1_000_000_000_000_000_000;
+
+/// Market-side convenience enum for readable order construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Side {
+    /// Buy-side order: long entry or short close.
+    Buy,
+    /// Sell-side order: short entry or long close.
+    Sell,
+}
+
+impl Side {
+    /// Convert to the Solidity `Order.isBuy` boolean.
+    #[must_use]
+    pub const fn is_buy(self) -> bool {
+        matches!(self, Self::Buy)
+    }
+}
+
+/// Submit-time market constraints mirrored from `OrderBook.submitOrder`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderConstraints {
+    /// Minimum price increment in PRICE_SCALE units.
+    pub tick_size: u128,
+    /// Minimum size increment in 1e18 base units.
+    pub lot_size: u128,
+}
+
+impl OrderConstraints {
+    /// Construct constraints from `MarketRegistry.market(...)`.
+    pub const fn new(tick_size: u128, lot_size: u128) -> Self {
+        Self {
+            tick_size,
+            lot_size,
+        }
+    }
+}
+
 /// A single perpetual-futures order, EIP-712-signed by an account's owner.
 ///
 /// Mirrors the `Order` struct in [`src/types/OrderTypes.sol`]. Field shape,
@@ -24,7 +66,7 @@ pub struct Order {
     pub is_buy: bool,
     /// Worst-acceptable price in `PRICE_SCALE` units (1e8 = $1).
     pub limit_price: u128,
-    /// Notional size in 1e18 base units.
+    /// Base quantity in 1e18 units.
     pub size: u128,
     /// Monotonic per-account counter; settled orders consume their nonce.
     pub nonce: u128,
@@ -63,6 +105,157 @@ impl Order {
             expiry,
             reduce_only,
         }
+    }
+
+    /// Start an ergonomic order builder.
+    #[must_use]
+    pub fn builder() -> OrderBuilder {
+        OrderBuilder::default()
+    }
+
+    /// Validate local fields and known market constraints before signing.
+    pub fn validate(
+        &self,
+        constraints: OrderConstraints,
+        current_timestamp: u64,
+    ) -> Result<(), OrderError> {
+        if self.account_id == 0 {
+            return Err(OrderError::Invalid("account_id must be non-zero".into()));
+        }
+        if self.market_id == 0 {
+            return Err(OrderError::Invalid("market_id must be non-zero".into()));
+        }
+        if self.limit_price == 0 {
+            return Err(OrderError::Invalid("limit_price must be non-zero".into()));
+        }
+        if self.size == 0 {
+            return Err(OrderError::Invalid("size must be non-zero".into()));
+        }
+        if self.nonce == 0 {
+            return Err(OrderError::Invalid("nonce must be non-zero".into()));
+        }
+        if self.expiry <= current_timestamp {
+            return Err(OrderError::Invalid("expiry must be in the future".into()));
+        }
+        if constraints.tick_size == 0 {
+            return Err(OrderError::Invalid("tick_size must be non-zero".into()));
+        }
+        if constraints.lot_size == 0 {
+            return Err(OrderError::Invalid("lot_size must be non-zero".into()));
+        }
+        if self.limit_price % constraints.tick_size != 0 {
+            return Err(OrderError::Invalid("limit_price violates tick_size".into()));
+        }
+        if self.size % constraints.lot_size != 0 {
+            return Err(OrderError::Invalid("size violates lot_size".into()));
+        }
+        Ok(())
+    }
+}
+
+/// Builder for constructing and validating an [`Order`] before signing.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct OrderBuilder {
+    account_id: Option<u128>,
+    market_id: Option<u128>,
+    side: Option<Side>,
+    limit_price: Option<u128>,
+    size: Option<u128>,
+    nonce: Option<u128>,
+    expiry: Option<u64>,
+    reduce_only: bool,
+}
+
+impl OrderBuilder {
+    /// Set the `AccountManager` account id.
+    #[must_use]
+    pub fn account_id(mut self, account_id: u128) -> Self {
+        self.account_id = Some(account_id);
+        self
+    }
+
+    /// Set the `MarketRegistry` market id.
+    #[must_use]
+    pub fn market_id(mut self, market_id: u128) -> Self {
+        self.market_id = Some(market_id);
+        self
+    }
+
+    /// Set buy or sell side.
+    #[must_use]
+    pub fn side(mut self, side: Side) -> Self {
+        self.side = Some(side);
+        self
+    }
+
+    /// Set limit price in PRICE_SCALE units.
+    #[must_use]
+    pub fn limit_price(mut self, limit_price: u128) -> Self {
+        self.limit_price = Some(limit_price);
+        self
+    }
+
+    /// Set base quantity in 1e18 units.
+    #[must_use]
+    pub fn size(mut self, size: u128) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    /// Set monotonic per-account nonce.
+    #[must_use]
+    pub fn nonce(mut self, nonce: u128) -> Self {
+        self.nonce = Some(nonce);
+        self
+    }
+
+    /// Set unix timestamp expiry.
+    #[must_use]
+    pub fn expiry(mut self, expiry: u64) -> Self {
+        self.expiry = Some(expiry);
+        self
+    }
+
+    /// Mark as reduce-only.
+    #[must_use]
+    pub fn reduce_only(mut self, reduce_only: bool) -> Self {
+        self.reduce_only = reduce_only;
+        self
+    }
+
+    /// Build and validate against market constraints and a local timestamp.
+    pub fn build(
+        self,
+        constraints: OrderConstraints,
+        current_timestamp: u64,
+    ) -> Result<Order, OrderError> {
+        let order = Order {
+            account_id: self
+                .account_id
+                .ok_or_else(|| OrderError::Invalid("account_id is required".into()))?,
+            market_id: self
+                .market_id
+                .ok_or_else(|| OrderError::Invalid("market_id is required".into()))?,
+            is_buy: self
+                .side
+                .ok_or_else(|| OrderError::Invalid("side is required".into()))?
+                .is_buy(),
+            limit_price: self
+                .limit_price
+                .ok_or_else(|| OrderError::Invalid("limit_price is required".into()))?,
+            size: self
+                .size
+                .ok_or_else(|| OrderError::Invalid("size is required".into()))?,
+            nonce: self
+                .nonce
+                .ok_or_else(|| OrderError::Invalid("nonce is required".into()))?,
+            expiry: self
+                .expiry
+                .ok_or_else(|| OrderError::Invalid("expiry is required".into()))?,
+            reduce_only: self.reduce_only,
+        };
+        order.validate(constraints, current_timestamp)?;
+        Ok(order)
     }
 }
 
@@ -108,5 +301,55 @@ mod tests {
         let json = serde_json::to_string(&order).expect("serialize");
         let back: Order = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(order, back);
+    }
+
+    #[test]
+    fn builder_constructs_valid_order() {
+        let constraints = OrderConstraints::new(100, 1_000_000_000_000_000);
+        let order = Order::builder()
+            .account_id(7)
+            .market_id(1)
+            .side(Side::Buy)
+            .limit_price(65_000 * PRICE_SCALE)
+            .size(BASE_SCALE)
+            .nonce(42)
+            .expiry(1_717_000_000)
+            .build(constraints, 1_716_999_000)
+            .expect("valid order");
+
+        assert!(order.is_buy);
+        assert!(!order.reduce_only);
+    }
+
+    #[test]
+    fn validation_rejects_tick_lot_and_expiry_errors() {
+        let constraints = OrderConstraints::new(100, 1_000_000_000_000_000);
+
+        let bad_tick = Order::new(
+            7,
+            1,
+            true,
+            65_000 * PRICE_SCALE + 1,
+            BASE_SCALE,
+            42,
+            100,
+            false,
+        );
+        assert!(bad_tick.validate(constraints, 99).is_err());
+
+        let bad_lot = Order::new(
+            7,
+            1,
+            true,
+            65_000 * PRICE_SCALE,
+            BASE_SCALE + 1,
+            42,
+            100,
+            false,
+        );
+        assert!(bad_lot.validate(constraints, 99).is_err());
+
+        let expired = Order::new(7, 1, true, 65_000 * PRICE_SCALE, BASE_SCALE, 42, 100, false);
+        assert!(expired.validate(constraints, 100).is_err());
     }
 }

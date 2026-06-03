@@ -176,7 +176,7 @@ flowchart TB
 
 #### tangent-sdk (v1.0 target, `rust/tangent-sdk/`)
 
-- **Responsibility.** Typed-data signing + RPC client for agents. The single dependency a downstream agent like Selbo needs to integrate against arc-perp-reference.
+- **Responsibility.** Typed-data signing + RPC client for agents. The single dependency a downstream agent like Selbo needs to integrate against Tangent.
 - **Runtime state.** Stateless. Holds RPC client config and EIP-712 domain hash; everything else is per-call.
 - **Public API surface.** Async Rust API: `TangentClient::new(rpc, account, signer)`, `client.register_account()`, `client.deposit(amount)`, `client.submit_order(OrderParams)`, `client.cancel_order(hash)`, `client.withdraw(amount, to)`, `client.position(market) → Position`, `client.equity() → I256`. Re-exports the EIP-712 `Order` struct and `domain_separator()` helper for advanced users.
 - **Dependencies.** `alloy` for RPC + ABI, `alloy-signer-aws` and `alloy-signer-local` for signing backends, `serde` for the Order struct. Optional `circle-dev-wallets` feature flag for entity-secret signing (calls Circle's REST API to sign).
@@ -637,7 +637,7 @@ gantt
 ## 7. File and module layout at v0.10 (the pre-1.0 ceiling)
 
 ```
-arc-perp-reference/
+tangent/
 ├── README.md                             # high-level intro (shipped)
 ├── ARCHITECTURE.md                       # this document
 ├── LICENSE                               # MIT
@@ -867,8 +867,8 @@ Items explicitly not yet decided. Listed so forks and the Arc OSS reviewers can 
 
 ### Critical files for implementation
 
-- D:/Projects/arc-perp-reference/src/interfaces/IOrderBook.sol: the public surface every off-chain consumer (SDK, keeper, future matcher) binds to; landing v0.4 means implementing exactly this interface
-- D:/Projects/arc-perp-reference/src/interfaces/ISettlement.sol: defines the `Match` struct and bound-book settlement entry point; v0.5 is the highest-risk single contract and this interface is its public API
-- D:/Projects/arc-perp-reference/src/interfaces/IUSDCVault.sol: pins the lock/release/applyPnL hook shape that `SettlementEngine` will call; v0.2's impl must match this exactly so v0.5 can wire against it without churn
-- D:/Projects/arc-perp-reference/src/types/OrderTypes.sol: the EIP-712 schema is the canonical public contract between agents and the system; any change here is a wire-breaking signature change, so v0.4 OrderBook and v1.0 SDK both freeze against this file
-- D:/Projects/arc-perp-reference/script/Deploy.s.sol: the wiring-order comment in this scaffold is the deployment dependency graph for v0.7; the full implementation must materialize the 8-step order called out in its header
+- `src/interfaces/IOrderBook.sol`: the public surface every off-chain consumer (SDK, keeper, future matcher) binds to; landing v0.4 means implementing exactly this interface
+- `src/interfaces/ISettlement.sol`: defines the `Match` struct and bound-book settlement entry point; v0.5 is the highest-risk single contract and this interface is its public API
+- `src/interfaces/IUSDCVault.sol`: pins the lock/release/applyPnL hook shape that `SettlementEngine` will call; v0.2's impl must match this exactly so v0.5 can wire against it without churn
+- `src/types/OrderTypes.sol`: the EIP-712 schema is the canonical public contract between agents and the system; any change here is a wire-breaking signature change, so v0.4 OrderBook and v1.0 SDK both freeze against this file
+- `script/Deploy.s.sol`: the wiring-order comment in this scaffold is the deployment dependency graph for v0.7; the full implementation must materialize the 8-step order called out in its header

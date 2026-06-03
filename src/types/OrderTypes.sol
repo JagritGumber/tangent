@@ -15,7 +15,7 @@ library OrderTypes {
     /// @param  marketId     MarketRegistry-assigned identifier of the perp market.
     /// @param  isBuy        true = long entry / short close, false = short entry / long close.
     /// @param  limitPrice   Worst-acceptable price in PRICE_SCALE units (1e8 = $1).
-    /// @param  size         Notional size in 1e18 base units.
+    /// @param  size         Base quantity in 1e18 units.
     /// @param  nonce        Monotonic per-account counter; settled orders consume their nonce.
     /// @param  expiry       block.timestamp cutoff. Orders past expiry are rejected at submit.
     /// @param  reduceOnly   true = order may only reduce an existing position, never flip or open.

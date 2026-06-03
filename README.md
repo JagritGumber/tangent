@@ -6,7 +6,7 @@ A circle is the locus of arcs; a tangent is the line that meets one. Arc is Circ
 
 MIT-licensed. Designed for the Arc OSS program (Canteen × Circle × Arc, 2026).
 
-> **Repository slug note.** This repository's GitHub slug is `arc-perp-reference` because that was the working name when the hackathon submission was filed. The project's actual name is **Tangent**; all code, contracts, and EIP-712 domains use `Tangent`. The slug is preserved for permalink stability.
+> **Repository rename note.** This repository was submitted to the hackathon under the working slug `arc-perp-reference`. It has since been renamed to **Tangent**; GitHub redirects the submitted URL for permalink stability.
 
 ## Why this exists
 
