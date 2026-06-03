@@ -21,7 +21,12 @@
 #![doc(html_root_url = "https://docs.rs/tangent-sdk")]
 
 pub mod domain;
+mod eip712;
+pub mod manifest;
 pub mod order;
 
 pub use domain::DomainSeparatorInput;
-pub use order::{Order, OrderBuilder, OrderConstraints, OrderError, Side, BASE_SCALE, PRICE_SCALE};
+pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
+pub use order::{
+    Order, OrderBuilder, OrderConstraints, OrderError, OrderParams, Side, BASE_SCALE, PRICE_SCALE,
+};

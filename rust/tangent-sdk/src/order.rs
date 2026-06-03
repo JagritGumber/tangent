@@ -8,7 +8,10 @@
 //! [`Order::EIP712_TYPE_STRING`] constant + the `ORDER_TYPEHASH`
 //! comparison below.
 
+use alloy_primitives::{keccak256, B256};
 use serde::{Deserialize, Serialize};
+
+use crate::DomainSeparatorInput;
 
 /// Tangent price scale: 1e8 == $1.
 pub const PRICE_SCALE: u128 = 100_000_000;
@@ -81,6 +84,12 @@ impl Order {
     /// `OrderTypes.sol::ORDER_TYPEHASH`'s input exactly.
     pub const EIP712_TYPE_STRING: &'static str = "Order(uint256 accountId,uint256 marketId,bool isBuy,uint256 limitPrice,uint256 size,uint256 nonce,uint256 expiry,bool reduceOnly)";
 
+    /// The canonical EIP-712 type hash for Tangent orders.
+    #[must_use]
+    pub fn type_hash() -> B256 {
+        keccak256(Self::EIP712_TYPE_STRING.as_bytes())
+    }
+
     /// Construct a new order. All fields validated at signing time
     /// downstream, not here.
     #[must_use]
@@ -150,6 +159,64 @@ impl Order {
             return Err(OrderError::Invalid("size violates lot_size".into()));
         }
         Ok(())
+    }
+
+    /// Compute the Solidity-compatible EIP-712 struct hash.
+    #[must_use]
+    pub fn struct_hash(&self) -> B256 {
+        let mut encoded = Vec::with_capacity(288);
+        crate::eip712::encode_bytes32(&mut encoded, Self::type_hash());
+        crate::eip712::encode_u128(&mut encoded, self.account_id);
+        crate::eip712::encode_u128(&mut encoded, self.market_id);
+        crate::eip712::encode_bool(&mut encoded, self.is_buy);
+        crate::eip712::encode_u128(&mut encoded, self.limit_price);
+        crate::eip712::encode_u128(&mut encoded, self.size);
+        crate::eip712::encode_u128(&mut encoded, self.nonce);
+        crate::eip712::encode_u64(&mut encoded, self.expiry);
+        crate::eip712::encode_bool(&mut encoded, self.reduce_only);
+        crate::eip712::hash_words(encoded)
+    }
+
+    /// Compute the final EIP-712 digest an account owner signs.
+    #[must_use]
+    pub fn digest(&self, domain: &DomainSeparatorInput) -> B256 {
+        crate::eip712::digest(domain.separator(), self.struct_hash())
+    }
+}
+
+/// User-facing order construction parameters.
+///
+/// This keeps readable side semantics at the SDK boundary while preserving
+/// the wire-frozen [`Order`] shape internally.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderParams {
+    pub account_id: u128,
+    pub market_id: u128,
+    pub side: Side,
+    pub limit_price: u128,
+    pub size: u128,
+    pub nonce: u128,
+    pub expiry: u64,
+    pub reduce_only: bool,
+}
+
+impl OrderParams {
+    /// Build and validate a wire-compatible [`Order`].
+    pub fn build(
+        self,
+        constraints: OrderConstraints,
+        current_timestamp: u64,
+    ) -> Result<Order, OrderError> {
+        Order::builder()
+            .account_id(self.account_id)
+            .market_id(self.market_id)
+            .side(self.side)
+            .limit_price(self.limit_price)
+            .size(self.size)
+            .nonce(self.nonce)
+            .expiry(self.expiry)
+            .reduce_only(self.reduce_only)
+            .build(constraints, current_timestamp)
     }
 }
 
@@ -284,6 +351,10 @@ mod tests {
             Order::EIP712_TYPE_STRING,
             "Order(uint256 accountId,uint256 marketId,bool isBuy,uint256 limitPrice,uint256 size,uint256 nonce,uint256 expiry,bool reduceOnly)"
         );
+        assert_eq!(
+            hex::encode(Order::type_hash()),
+            "da43521c783b1bbaf61db64338940703bb2aae681813e15d1c44e31074e9060f"
+        );
     }
 
     #[test]
@@ -319,6 +390,65 @@ mod tests {
 
         assert!(order.is_buy);
         assert!(!order.reduce_only);
+    }
+
+    #[test]
+    fn order_params_builds_same_order_as_builder() {
+        let constraints = OrderConstraints::new(100, 1_000_000_000_000_000);
+        let params = OrderParams {
+            account_id: 7,
+            market_id: 1,
+            side: Side::Buy,
+            limit_price: 65_000 * PRICE_SCALE,
+            size: BASE_SCALE,
+            nonce: 42,
+            expiry: 1_717_000_000,
+            reduce_only: true,
+        };
+        let from_params = params
+            .build(constraints, 1_716_999_000)
+            .expect("valid order");
+        let from_builder = Order::builder()
+            .account_id(7)
+            .market_id(1)
+            .side(Side::Buy)
+            .limit_price(65_000 * PRICE_SCALE)
+            .size(BASE_SCALE)
+            .nonce(42)
+            .expiry(1_717_000_000)
+            .reduce_only(true)
+            .build(constraints, 1_716_999_000)
+            .expect("valid order");
+
+        assert_eq!(from_params, from_builder);
+    }
+
+    #[test]
+    fn order_hash_and_digest_match_frozen_fixture() {
+        let domain = DomainSeparatorInput::new(11111, alloy_primitives::Address::ZERO);
+        let order = Order::new(
+            7,
+            1,
+            true,
+            65_000 * PRICE_SCALE,
+            BASE_SCALE,
+            1,
+            1_717_000_000,
+            false,
+        );
+
+        assert_eq!(
+            hex::encode(domain.separator()),
+            "7a56aaa9c62a007bd4ad2bb83215db0d7bbebadab42d61484a18d062e9f99a72"
+        );
+        assert_eq!(
+            hex::encode(order.struct_hash()),
+            "b0b9bd99f3734201d225297621c4a3a15cbdb0c6381dc7789dc0b85d94a08cc0"
+        );
+        assert_eq!(
+            hex::encode(order.digest(&domain)),
+            "28e8b0b1104d7872301ab044c7b2106a4df3759a110949d6658cf7a704a79447"
+        );
     }
 
     #[test]

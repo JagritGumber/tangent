@@ -1,0 +1,32 @@
+//! Minimal example: load the checked-in Arc Testnet deployment manifest.
+//!
+//! Run with:
+//!   cargo run --example load_manifest -p tangent-sdk
+
+use tangent_sdk::DeploymentManifest;
+
+fn main() {
+    let manifest =
+        DeploymentManifest::from_json(include_str!("../../../docs/deployments/arc-testnet.json"))
+            .expect("valid deployment manifest");
+
+    println!("=== tangent-sdk example: deployment manifest ===");
+    println!("project : {}", manifest.project);
+    println!("network : {}", manifest.network);
+    println!("chainId : {}", manifest.chain_id);
+    println!("USDC    : {}", manifest.constants.usdc);
+    println!("AccountManager : {}", manifest.contracts.account_manager);
+    println!("USDCVault      : {}", manifest.contracts.usdc_vault);
+    println!("MarketRegistry : {}", manifest.contracts.market_registry);
+
+    match manifest.order_book_domain() {
+        Some(domain) => {
+            println!("OrderBook       : {}", domain.verifying_contract);
+            println!("Domain separator: 0x{}", hex::encode(domain.separator()));
+        }
+        None => {
+            println!("OrderBook       : not present in this v0.1 manifest");
+            println!("Domain separator: unavailable until full-stack deployment is published");
+        }
+    }
+}

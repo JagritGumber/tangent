@@ -12,16 +12,17 @@ repository.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+alloy-primitives = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-serde_json = "1"
 
-# v0.8 will add: alloy = "0.x", alloy-signer-local, alloy-sol-types,
-# tokio, tracing. Keeping deps minimal in v0.1 because we are only
-# shipping the typed-data Order shape; full RPC client + signing
+# v0.8 will add: full Alloy RPC, alloy-signer-local, alloy-sol-types,
+# tokio, tracing. Keeping deps minimal here: alloy-primitives is only used
+# for Address/B256/keccak typed-data helpers; full RPC client + signing
 # backends land alongside the keeper binary.
 
 [features]
