@@ -8,7 +8,8 @@
 
 use alloy_primitives::Address;
 use tangent_sdk::{
-    DomainSeparatorInput, Order, OrderConstraints, OrderParams, Side, BASE_SCALE, PRICE_SCALE,
+    DomainSeparatorInput, Order, OrderConstraints, OrderParams, OrderSignature, Side, BASE_SCALE,
+    PRICE_SCALE,
 };
 
 fn main() {
@@ -31,28 +32,42 @@ fn main() {
     .build(btc_constraints, 1_716_999_000)
     .expect("valid order");
 
-    let domain = DomainSeparatorInput::new(11111, Address::ZERO);
+    let chain_id = 11111;
+    let verifying_contract = Address::ZERO;
+    let domain = DomainSeparatorInput::new(chain_id, verifying_contract);
     let domain_separator = domain.separator();
     let order_hash = order.struct_hash();
-    let digest = order.digest(&domain);
+    let prepared = order.prepare(domain);
+    let digest = prepared.digest;
+
+    // Placeholder signature shape. In production this comes from the account
+    // owner wallet after signing `prepared.digest`.
+    let signature = OrderSignature::from_bytes([0u8; OrderSignature::LEN]).expect("valid shape");
+    let signed_order = prepared.attach_signature(signature);
 
     println!("=== tangent-sdk example: constructed order ===");
     println!("EIP-712 domain:");
     println!("  name             : {}", DomainSeparatorInput::NAME);
     println!("  version          : {}", DomainSeparatorInput::VERSION);
-    println!("  chainId          : {}", domain.chain_id);
-    println!("  verifyingContract: {}", domain.verifying_contract);
+    println!("  chainId          : {chain_id}");
+    println!("  verifyingContract: {verifying_contract}");
     println!("  domainSeparator  : 0x{}", hex::encode(domain_separator));
     println!();
     println!("Order:");
-    println!("  accountId   : {}", order.account_id);
-    println!("  marketId    : {}", order.market_id);
-    println!("  isBuy       : {}", order.is_buy);
-    println!("  limitPrice  : {} (PRICE_SCALE=1e8)", order.limit_price);
-    println!("  size        : {} (1e18 base units)", order.size);
-    println!("  nonce       : {}", order.nonce);
-    println!("  expiry      : {}", order.expiry);
-    println!("  reduceOnly  : {}", order.reduce_only);
+    println!("  accountId   : {}", signed_order.order.account_id);
+    println!("  marketId    : {}", signed_order.order.market_id);
+    println!("  isBuy       : {}", signed_order.order.is_buy);
+    println!(
+        "  limitPrice  : {} (PRICE_SCALE=1e8)",
+        signed_order.order.limit_price
+    );
+    println!(
+        "  size        : {} (1e18 base units)",
+        signed_order.order.size
+    );
+    println!("  nonce       : {}", signed_order.order.nonce);
+    println!("  expiry      : {}", signed_order.order.expiry);
+    println!("  reduceOnly  : {}", signed_order.order.reduce_only);
     println!();
     println!("EIP-712 type string:");
     println!("  {}", Order::EIP712_TYPE_STRING);
@@ -60,6 +75,8 @@ fn main() {
     println!("  0x{}", hex::encode(order_hash));
     println!("Signing digest:");
     println!("  0x{}", hex::encode(digest));
+    println!("Signature bytes:");
+    println!("  {}", signed_order.signature.to_hex());
     println!();
     println!(
         "(sign this digest with the account owner; RPC submission lands after full-stack deployment.)"

@@ -182,6 +182,12 @@ impl Order {
     pub fn digest(&self, domain: &DomainSeparatorInput) -> B256 {
         crate::eip712::digest(domain.separator(), self.struct_hash())
     }
+
+    /// Package this order with its domain and digest for an external signer.
+    #[must_use]
+    pub fn prepare(self, domain: DomainSeparatorInput) -> crate::PreparedOrder {
+        crate::PreparedOrder::new(self, domain)
+    }
 }
 
 /// User-facing order construction parameters.
