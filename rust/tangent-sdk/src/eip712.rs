@@ -39,3 +39,10 @@ pub(crate) fn digest(domain_separator: B256, struct_hash: B256) -> B256 {
     payload.extend_from_slice(struct_hash.as_slice());
     keccak256(payload)
 }
+
+pub(crate) fn encode_dynamic_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    encode_u128(out, bytes.len() as u128);
+    out.extend_from_slice(bytes);
+    let padding = (32 - bytes.len() % 32) % 32;
+    out.extend(std::iter::repeat_n(0u8, padding));
+}

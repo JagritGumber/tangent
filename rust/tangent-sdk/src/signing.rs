@@ -5,7 +5,7 @@
 //! 65-byte EVM signature returned by a wallet service, and pass a single typed
 //! payload to future RPC submission helpers.
 
-use alloy_primitives::B256;
+use alloy_primitives::{keccak256, B256};
 use serde::{Deserialize, Serialize};
 
 use crate::{DomainSeparatorInput, Order};
@@ -45,6 +45,50 @@ impl PreparedOrder {
 pub struct SignedOrder {
     pub order: Order,
     pub signature: OrderSignature,
+}
+
+impl SignedOrder {
+    /// Solidity function signature for `IOrderBook.submitOrder`.
+    pub const SUBMIT_ORDER_SIGNATURE: &'static str =
+        "submitOrder((uint256,uint256,bool,uint256,uint256,uint256,uint256,bool),bytes)";
+
+    /// Compute the 4-byte selector for `submitOrder(Order,bytes)`.
+    #[must_use]
+    pub fn submit_order_selector() -> [u8; 4] {
+        let hash = keccak256(Self::SUBMIT_ORDER_SIGNATURE.as_bytes());
+        [hash[0], hash[1], hash[2], hash[3]]
+    }
+
+    /// ABI-encode `OrderBook.submitOrder(order, signature)` calldata.
+    ///
+    /// This does not submit a transaction. It produces the exact calldata a
+    /// caller can broadcast once an OrderBook deployment is known.
+    #[must_use]
+    pub fn submit_order_calldata(&self) -> Vec<u8> {
+        const ORDER_WORDS: usize = 8;
+        const SIGNATURE_OFFSET_WORDS: usize = ORDER_WORDS + 1;
+
+        let mut out = Vec::with_capacity(4 + 32 * (SIGNATURE_OFFSET_WORDS + 1 + 3));
+        out.extend_from_slice(&Self::submit_order_selector());
+
+        crate::eip712::encode_u128(&mut out, self.order.account_id);
+        crate::eip712::encode_u128(&mut out, self.order.market_id);
+        crate::eip712::encode_bool(&mut out, self.order.is_buy);
+        crate::eip712::encode_u128(&mut out, self.order.limit_price);
+        crate::eip712::encode_u128(&mut out, self.order.size);
+        crate::eip712::encode_u128(&mut out, self.order.nonce);
+        crate::eip712::encode_u64(&mut out, self.order.expiry);
+        crate::eip712::encode_bool(&mut out, self.order.reduce_only);
+        crate::eip712::encode_u128(&mut out, (SIGNATURE_OFFSET_WORDS * 32) as u128);
+        crate::eip712::encode_dynamic_bytes(&mut out, self.signature.as_bytes());
+        out
+    }
+
+    /// Hex-encode `submit_order_calldata()` with a `0x` prefix.
+    #[must_use]
+    pub fn submit_order_calldata_hex(&self) -> String {
+        format!("0x{}", hex::encode(self.submit_order_calldata()))
+    }
 }
 
 /// A canonical EVM order signature: `r || s || v`, exactly 65 bytes.
@@ -174,5 +218,35 @@ mod tests {
         assert!(json.contains("\"signature\":\"0x010101"));
         let decoded: SignedOrder = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded, signed);
+    }
+
+    #[test]
+    fn signed_order_calldata_has_submit_order_shape() {
+        let signature = OrderSignature::from_bytes([1u8; OrderSignature::LEN]).expect("valid");
+        let signed = PreparedOrder::new(order(), DomainSeparatorInput::new(11111, Address::ZERO))
+            .attach_signature(signature);
+        let calldata = signed.submit_order_calldata();
+
+        assert_eq!(
+            hex::encode(SignedOrder::submit_order_selector()),
+            "e8357b2d"
+        );
+        assert_eq!(&calldata[0..4], &SignedOrder::submit_order_selector());
+        assert_eq!(calldata.len(), 420);
+        assert_eq!(
+            hex::encode(&calldata[4 + 8 * 32..4 + 9 * 32]),
+            format!("{:064x}", 288)
+        );
+        assert_eq!(
+            hex::encode(&calldata[4 + 9 * 32..4 + 10 * 32]),
+            format!("{:064x}", 65)
+        );
+        assert_eq!(
+            &calldata[4 + 10 * 32..4 + 10 * 32 + OrderSignature::LEN],
+            signature.as_bytes()
+        );
+        assert!(calldata[4 + 10 * 32 + OrderSignature::LEN..]
+            .iter()
+            .all(|byte| *byte == 0));
     }
 }

@@ -77,6 +77,13 @@ fn main() {
     println!("  0x{}", hex::encode(digest));
     println!("Signature bytes:");
     println!("  {}", signed_order.signature.to_hex());
+    println!("submitOrder selector:");
+    println!(
+        "  0x{}",
+        hex::encode(tangent_sdk::SignedOrder::submit_order_selector())
+    );
+    println!("submitOrder calldata bytes:");
+    println!("  {}", signed_order.submit_order_calldata().len());
     println!();
     println!(
         "(sign this digest with the account owner; RPC submission lands after full-stack deployment.)"
