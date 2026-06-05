@@ -20,6 +20,7 @@
 
 #![doc(html_root_url = "https://docs.rs/tangent-sdk")]
 
+pub mod abi;
 pub mod contracts;
 pub mod domain;
 mod eip712;
@@ -28,6 +29,7 @@ pub mod order;
 pub mod orderbook;
 pub mod signing;
 
+pub use abi::AbiDecodeError;
 pub use contracts::{AccountManagerCalls, ERC20Calls, MarketRegistryCalls, USDCVaultCalls};
 pub use domain::DomainSeparatorInput;
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};

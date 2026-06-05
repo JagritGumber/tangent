@@ -36,6 +36,13 @@ fn main() {
         "market selector         : 0x{}",
         hex::encode(MarketRegistryCalls::market_selector())
     );
+    let mut sample_balance_return = [0u8; 32];
+    sample_balance_return[31] = 7;
+    println!(
+        "sample balance decode   : {}",
+        USDCVaultCalls::decode_free_balance_of_return(&sample_balance_return)
+            .expect("sample return")
+    );
 
     match manifest.order_book_domain() {
         Some(domain) => {

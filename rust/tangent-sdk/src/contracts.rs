@@ -5,6 +5,8 @@
 
 use alloy_primitives::{keccak256, Address};
 
+use crate::AbiDecodeError;
+
 fn selector(signature: &str) -> [u8; 4] {
     let hash = keccak256(signature.as_bytes());
     [hash[0], hash[1], hash[2], hash[3]]
@@ -88,6 +90,18 @@ impl ERC20Calls {
         crate::eip712::encode_u128(&mut out, amount);
         out
     }
+
+    pub fn decode_bool_return(data: &[u8]) -> Result<bool, AbiDecodeError> {
+        crate::abi::decode_bool(data)
+    }
+
+    pub fn decode_allowance_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
+
+    pub fn decode_balance_of_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
 }
 
 /// ABI helpers for `IAccountManager`.
@@ -137,6 +151,22 @@ impl AccountManagerCalls {
     #[must_use]
     pub fn total_accounts_calldata() -> Vec<u8> {
         no_arg_call(Self::TOTAL_ACCOUNTS_SIGNATURE)
+    }
+
+    pub fn decode_register_account_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
+
+    pub fn decode_owner_of_return(data: &[u8]) -> Result<Address, AbiDecodeError> {
+        crate::abi::decode_address(data)
+    }
+
+    pub fn decode_account_id_of_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
+
+    pub fn decode_total_accounts_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
     }
 }
 
@@ -208,6 +238,18 @@ impl USDCVaultCalls {
     pub fn total_balance_of_calldata(account_id: u128) -> Vec<u8> {
         u128_call(Self::TOTAL_BALANCE_OF_SIGNATURE, account_id)
     }
+
+    pub fn decode_free_balance_of_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
+
+    pub fn decode_locked_balance_of_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
+
+    pub fn decode_total_balance_of_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
 }
 
 /// ABI helpers for `IMarketRegistry` read calls.
@@ -246,6 +288,14 @@ impl MarketRegistryCalls {
     #[must_use]
     pub fn total_markets_calldata() -> Vec<u8> {
         no_arg_call(Self::TOTAL_MARKETS_SIGNATURE)
+    }
+
+    pub fn decode_mark_price_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
+    }
+
+    pub fn decode_total_markets_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
+        crate::abi::decode_u128(data)
     }
 }
 
@@ -377,5 +427,39 @@ mod tests {
         assert_eq!(&allowance[..4], &ERC20Calls::allowance_selector());
         assert_eq!(&allowance[16..36], addr().as_slice());
         assert_eq!(&allowance[48..68], addr().as_slice());
+    }
+
+    #[test]
+    fn decodes_single_word_contract_returns() {
+        let mut seven = [0u8; 32];
+        seven[31] = 7;
+
+        let mut address = [0u8; 32];
+        address[12..].fill(0x11);
+
+        let mut yes = [0u8; 32];
+        yes[31] = 1;
+
+        assert_eq!(
+            AccountManagerCalls::decode_register_account_return(&seven).expect("account id"),
+            7
+        );
+        assert_eq!(
+            AccountManagerCalls::decode_owner_of_return(&address).expect("owner"),
+            addr()
+        );
+        assert_eq!(
+            USDCVaultCalls::decode_free_balance_of_return(&seven).expect("balance"),
+            7
+        );
+        assert_eq!(
+            MarketRegistryCalls::decode_mark_price_return(&seven).expect("price"),
+            7
+        );
+        assert!(ERC20Calls::decode_bool_return(&yes).expect("bool"));
+        assert_eq!(
+            ERC20Calls::decode_allowance_return(&seven).expect("allowance"),
+            7
+        );
     }
 }

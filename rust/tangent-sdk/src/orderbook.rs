@@ -6,6 +6,8 @@
 
 use alloy_primitives::{keccak256, B256};
 
+use crate::AbiDecodeError;
+
 fn selector(signature: &str) -> [u8; 4] {
     let hash = keccak256(signature.as_bytes());
     [hash[0], hash[1], hash[2], hash[3]]
@@ -84,6 +86,10 @@ impl OrderBookCalls {
     pub fn tick_calldata() -> Vec<u8> {
         no_arg_call(Self::TICK_SIGNATURE)
     }
+
+    pub fn decode_is_live_return(data: &[u8]) -> Result<bool, AbiDecodeError> {
+        crate::abi::decode_bool(data)
+    }
 }
 
 #[cfg(test)]
@@ -127,5 +133,12 @@ mod tests {
     fn tick_call_is_selector_only() {
         let tick = OrderBookCalls::tick_calldata();
         assert_eq!(tick, OrderBookCalls::tick_selector());
+    }
+
+    #[test]
+    fn decodes_is_live_return() {
+        let mut word = [0u8; 32];
+        word[31] = 1;
+        assert!(OrderBookCalls::decode_is_live_return(&word).expect("is live"));
     }
 }
