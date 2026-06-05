@@ -28,6 +28,68 @@ fn address_call(signature: &str, value: Address) -> Vec<u8> {
     out
 }
 
+/// ABI helpers for standard ERC-20 calls used by the USDC collateral flow.
+pub struct ERC20Calls;
+
+impl ERC20Calls {
+    pub const APPROVE_SIGNATURE: &'static str = "approve(address,uint256)";
+    pub const ALLOWANCE_SIGNATURE: &'static str = "allowance(address,address)";
+    pub const BALANCE_OF_SIGNATURE: &'static str = "balanceOf(address)";
+    pub const TRANSFER_SIGNATURE: &'static str = "transfer(address,uint256)";
+
+    #[must_use]
+    pub fn approve_selector() -> [u8; 4] {
+        selector(Self::APPROVE_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn approve_calldata(spender: Address, amount: u128) -> Vec<u8> {
+        let mut out = Vec::with_capacity(68);
+        out.extend_from_slice(&Self::approve_selector());
+        crate::eip712::encode_address(&mut out, spender);
+        crate::eip712::encode_u128(&mut out, amount);
+        out
+    }
+
+    #[must_use]
+    pub fn allowance_selector() -> [u8; 4] {
+        selector(Self::ALLOWANCE_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn allowance_calldata(owner: Address, spender: Address) -> Vec<u8> {
+        let mut out = Vec::with_capacity(68);
+        out.extend_from_slice(&Self::allowance_selector());
+        crate::eip712::encode_address(&mut out, owner);
+        crate::eip712::encode_address(&mut out, spender);
+        out
+    }
+
+    #[must_use]
+    pub fn balance_of_selector() -> [u8; 4] {
+        selector(Self::BALANCE_OF_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn balance_of_calldata(account: Address) -> Vec<u8> {
+        address_call(Self::BALANCE_OF_SIGNATURE, account)
+    }
+
+    #[must_use]
+    pub fn transfer_selector() -> [u8; 4] {
+        selector(Self::TRANSFER_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn transfer_calldata(to: Address, amount: u128) -> Vec<u8> {
+        let mut out = Vec::with_capacity(68);
+        out.extend_from_slice(&Self::transfer_selector());
+        crate::eip712::encode_address(&mut out, to);
+        crate::eip712::encode_u128(&mut out, amount);
+        out
+    }
+}
+
 /// ABI helpers for `IAccountManager`.
 pub struct AccountManagerCalls;
 
@@ -216,6 +278,14 @@ mod tests {
     }
 
     #[test]
+    fn erc20_selectors_match_foundry_fixtures() {
+        assert_eq!(hex::encode(ERC20Calls::approve_selector()), "095ea7b3");
+        assert_eq!(hex::encode(ERC20Calls::allowance_selector()), "dd62ed3e");
+        assert_eq!(hex::encode(ERC20Calls::balance_of_selector()), "70a08231");
+        assert_eq!(hex::encode(ERC20Calls::transfer_selector()), "a9059cbb");
+    }
+
+    #[test]
     fn vault_selectors_match_foundry_fixtures() {
         assert_eq!(hex::encode(USDCVaultCalls::deposit_selector()), "e2bbb158");
         assert_eq!(hex::encode(USDCVaultCalls::withdraw_selector()), "0ad58d2f");
@@ -296,5 +366,16 @@ mod tests {
         assert_eq!(withdraw.len(), 100);
         assert_eq!(&withdraw[..4], &USDCVaultCalls::withdraw_selector());
         assert_eq!(&withdraw[80..100], addr().as_slice());
+
+        let approve = ERC20Calls::approve_calldata(addr(), 1_000_000);
+        assert_eq!(approve.len(), 68);
+        assert_eq!(&approve[..4], &ERC20Calls::approve_selector());
+        assert_eq!(&approve[16..36], addr().as_slice());
+
+        let allowance = ERC20Calls::allowance_calldata(addr(), addr());
+        assert_eq!(allowance.len(), 68);
+        assert_eq!(&allowance[..4], &ERC20Calls::allowance_selector());
+        assert_eq!(&allowance[16..36], addr().as_slice());
+        assert_eq!(&allowance[48..68], addr().as_slice());
     }
 }

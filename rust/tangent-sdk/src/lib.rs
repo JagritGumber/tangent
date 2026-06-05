@@ -28,7 +28,7 @@ pub mod order;
 pub mod orderbook;
 pub mod signing;
 
-pub use contracts::{AccountManagerCalls, MarketRegistryCalls, USDCVaultCalls};
+pub use contracts::{AccountManagerCalls, ERC20Calls, MarketRegistryCalls, USDCVaultCalls};
 pub use domain::DomainSeparatorInput;
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
 pub use order::{

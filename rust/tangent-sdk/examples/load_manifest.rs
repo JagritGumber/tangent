@@ -3,7 +3,9 @@
 //! Run with:
 //!   cargo run --example load_manifest -p tangent-sdk
 
-use tangent_sdk::{AccountManagerCalls, DeploymentManifest, MarketRegistryCalls, USDCVaultCalls};
+use tangent_sdk::{
+    AccountManagerCalls, DeploymentManifest, ERC20Calls, MarketRegistryCalls, USDCVaultCalls,
+};
 
 fn main() {
     let manifest =
@@ -18,6 +20,10 @@ fn main() {
     println!("AccountManager : {}", manifest.contracts.account_manager);
     println!("USDCVault      : {}", manifest.contracts.usdc_vault);
     println!("MarketRegistry : {}", manifest.contracts.market_registry);
+    println!(
+        "USDC approve selector   : 0x{}",
+        hex::encode(ERC20Calls::approve_selector())
+    );
     println!(
         "registerAccount selector: 0x{}",
         hex::encode(AccountManagerCalls::register_account_selector())
