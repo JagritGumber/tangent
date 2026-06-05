@@ -177,6 +177,15 @@ impl Order {
         crate::eip712::hash_words(encoded)
     }
 
+    /// Compute the on-chain `orderHash` used by `OrderBook`.
+    ///
+    /// Solidity computes this through `OrderTypes.hash(order)`, which is the
+    /// EIP-712 struct hash.
+    #[must_use]
+    pub fn order_hash(&self) -> B256 {
+        self.struct_hash()
+    }
+
     /// Compute the final EIP-712 digest an account owner signs.
     #[must_use]
     pub fn digest(&self, domain: &DomainSeparatorInput) -> B256 {
@@ -451,6 +460,7 @@ mod tests {
             hex::encode(order.struct_hash()),
             "b0b9bd99f3734201d225297621c4a3a15cbdb0c6381dc7789dc0b85d94a08cc0"
         );
+        assert_eq!(order.order_hash(), order.struct_hash());
         assert_eq!(
             hex::encode(order.digest(&domain)),
             "28e8b0b1104d7872301ab044c7b2106a4df3759a110949d6658cf7a704a79447"

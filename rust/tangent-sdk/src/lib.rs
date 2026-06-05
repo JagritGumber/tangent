@@ -24,6 +24,7 @@ pub mod domain;
 mod eip712;
 pub mod manifest;
 pub mod order;
+pub mod orderbook;
 pub mod signing;
 
 pub use domain::DomainSeparatorInput;
@@ -31,4 +32,5 @@ pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, Network
 pub use order::{
     Order, OrderBuilder, OrderConstraints, OrderError, OrderParams, Side, BASE_SCALE, PRICE_SCALE,
 };
+pub use orderbook::OrderBookCalls;
 pub use signing::{OrderSignature, PreparedOrder, SignatureError, SignedOrder};

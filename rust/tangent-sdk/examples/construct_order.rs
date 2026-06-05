@@ -8,8 +8,8 @@
 
 use alloy_primitives::Address;
 use tangent_sdk::{
-    DomainSeparatorInput, Order, OrderConstraints, OrderParams, OrderSignature, Side, BASE_SCALE,
-    PRICE_SCALE,
+    DomainSeparatorInput, Order, OrderBookCalls, OrderConstraints, OrderParams, OrderSignature,
+    Side, BASE_SCALE, PRICE_SCALE,
 };
 
 fn main() {
@@ -36,7 +36,7 @@ fn main() {
     let verifying_contract = Address::ZERO;
     let domain = DomainSeparatorInput::new(chain_id, verifying_contract);
     let domain_separator = domain.separator();
-    let order_hash = order.struct_hash();
+    let order_hash = order.order_hash();
     let prepared = order.prepare(domain);
     let digest = prepared.digest;
 
@@ -84,6 +84,22 @@ fn main() {
     );
     println!("submitOrder calldata bytes:");
     println!("  {}", signed_order.submit_order_calldata().len());
+    println!("cancelOrder selector:");
+    println!(
+        "  0x{}",
+        hex::encode(OrderBookCalls::cancel_order_selector())
+    );
+    println!("cancelOrder calldata:");
+    println!(
+        "  {}",
+        OrderBookCalls::cancel_order_calldata_hex(order_hash)
+    );
+    println!("isLive selector:");
+    println!("  0x{}", hex::encode(OrderBookCalls::is_live_selector()));
+    println!("orderOf selector:");
+    println!("  0x{}", hex::encode(OrderBookCalls::order_of_selector()));
+    println!("tick selector:");
+    println!("  0x{}", hex::encode(OrderBookCalls::tick_selector()));
     println!();
     println!(
         "(sign this digest with the account owner; RPC submission lands after full-stack deployment.)"
