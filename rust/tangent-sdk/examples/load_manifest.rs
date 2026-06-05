@@ -3,7 +3,7 @@
 //! Run with:
 //!   cargo run --example load_manifest -p tangent-sdk
 
-use tangent_sdk::DeploymentManifest;
+use tangent_sdk::{AccountManagerCalls, DeploymentManifest, MarketRegistryCalls, USDCVaultCalls};
 
 fn main() {
     let manifest =
@@ -18,6 +18,18 @@ fn main() {
     println!("AccountManager : {}", manifest.contracts.account_manager);
     println!("USDCVault      : {}", manifest.contracts.usdc_vault);
     println!("MarketRegistry : {}", manifest.contracts.market_registry);
+    println!(
+        "registerAccount selector: 0x{}",
+        hex::encode(AccountManagerCalls::register_account_selector())
+    );
+    println!(
+        "deposit selector        : 0x{}",
+        hex::encode(USDCVaultCalls::deposit_selector())
+    );
+    println!(
+        "market selector         : 0x{}",
+        hex::encode(MarketRegistryCalls::market_selector())
+    );
 
     match manifest.order_book_domain() {
         Some(domain) => {
