@@ -4,8 +4,8 @@
 //!   cargo run --example load_manifest -p tangent-sdk
 
 use tangent_sdk::{
-    AccountManagerCalls, CollateralDepositPlan, CollateralWithdrawPlan, DeploymentManifest,
-    ERC20Calls, MarketRegistryCalls, USDCVaultCalls,
+    AccountManagerCalls, AccountOnboardingPlan, CollateralDepositPlan, CollateralWithdrawPlan,
+    DeploymentManifest, ERC20Calls, MarketRegistryCalls, USDCVaultCalls,
 };
 
 fn main() {
@@ -47,6 +47,15 @@ fn main() {
     let deposit_plan = CollateralDepositPlan::from_manifest(&manifest, 1, 1_000_000);
     let withdraw_plan =
         CollateralWithdrawPlan::from_manifest(&manifest, 1, 500_000, manifest.deployer);
+    let onboarding_plan = AccountOnboardingPlan::from_manifest(&manifest, manifest.deployer);
+    println!(
+        "sample register tx to   : {}",
+        onboarding_plan.register_tx().to
+    );
+    println!(
+        "sample accountId call to: {}",
+        onboarding_plan.account_id_of_call().to
+    );
     println!("sample approve tx to    : {}", deposit_plan.approve_tx().to);
     println!("sample deposit tx to    : {}", deposit_plan.deposit_tx().to);
     println!(

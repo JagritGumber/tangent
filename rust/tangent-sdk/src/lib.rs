@@ -24,6 +24,7 @@
 #![doc(html_root_url = "https://docs.rs/tangent-sdk")]
 
 pub mod abi;
+pub mod account;
 pub mod collateral;
 pub mod contracts;
 pub mod domain;
@@ -32,9 +33,11 @@ pub mod manifest;
 pub mod order;
 pub mod orderbook;
 pub mod signing;
+pub mod tx;
 
 pub use abi::AbiDecodeError;
-pub use collateral::{CollateralDepositPlan, CollateralWithdrawPlan, UnsignedTx};
+pub use account::AccountOnboardingPlan;
+pub use collateral::{CollateralDepositPlan, CollateralWithdrawPlan};
 pub use contracts::{AccountManagerCalls, ERC20Calls, MarketRegistryCalls, USDCVaultCalls};
 pub use domain::DomainSeparatorInput;
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
@@ -43,3 +46,4 @@ pub use order::{
 };
 pub use orderbook::OrderBookCalls;
 pub use signing::{OrderSignature, PreparedOrder, SignatureError, SignedOrder};
+pub use tx::UnsignedTx;
