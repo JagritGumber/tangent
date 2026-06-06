@@ -4,8 +4,8 @@
 //!   cargo run --example load_manifest -p tangent-sdk
 
 use tangent_sdk::{
-    AccountManagerCalls, CollateralDepositPlan, DeploymentManifest, ERC20Calls,
-    MarketRegistryCalls, USDCVaultCalls,
+    AccountManagerCalls, CollateralDepositPlan, CollateralWithdrawPlan, DeploymentManifest,
+    ERC20Calls, MarketRegistryCalls, USDCVaultCalls,
 };
 
 fn main() {
@@ -45,8 +45,14 @@ fn main() {
             .expect("sample return")
     );
     let deposit_plan = CollateralDepositPlan::from_manifest(&manifest, 1, 1_000_000);
+    let withdraw_plan =
+        CollateralWithdrawPlan::from_manifest(&manifest, 1, 500_000, manifest.deployer);
     println!("sample approve tx to    : {}", deposit_plan.approve_tx().to);
     println!("sample deposit tx to    : {}", deposit_plan.deposit_tx().to);
+    println!(
+        "sample withdraw tx to   : {}",
+        withdraw_plan.withdraw_tx().to
+    );
 
     match manifest.order_book_domain() {
         Some(domain) => {
