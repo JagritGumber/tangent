@@ -2,18 +2,21 @@
 //!
 //! Rust SDK for [Tangent](https://github.com/JagritGumber/tangent).
 //!
-//! Designed to be the single dependency a downstream agent (Selbo, CapitalArc,
-//! future Arc-native agents) needs to integrate against the on-chain Solidity
-//! primitives. The Solidity side lives at `../../src/`; this crate wraps it
-//! in typed Rust APIs.
+//! Designed to be the low-level dependency a downstream agent (Selbo,
+//! CapitalArc, future Arc-native agents) can use to integrate against the
+//! on-chain Solidity primitives without copying Tangent ABI details. The
+//! Solidity side lives at `../../src/`; this crate wraps the current raw
+//! integration surface in typed Rust APIs.
 //!
 //! ## Current status (v0.1 of the parent repo)
 //!
 //! Pre-1.0. This crate currently ships the canonical EIP-712 [`Order`] type
-//! mirroring `OrderTypes.sol` so off-chain code can construct orders with
-//! the same shape the on-chain `OrderBook` will accept. The full RPC client
-//! (`TangentClient`), Circle Dev Wallet signing backend, and broadcast
-//! helpers land at v0.8 of the parent repo, alongside the keeper daemon.
+//! mirroring `OrderTypes.sol`, signed-order calldata helpers, deployment
+//! manifest parsing, primitive contract calldata helpers, and minimal ABI
+//! return decoders. It does not yet open RPC connections, sign with Circle Dev
+//! Wallets, estimate gas, or broadcast transactions. The full RPC client
+//! (`TangentClient`), Circle Dev Wallet signing backend, and broadcast helpers
+//! land at v0.8 of the parent repo, alongside the keeper daemon.
 //!
 //! See [`ARCHITECTURE.md`](https://github.com/JagritGumber/tangent/blob/main/ARCHITECTURE.md)
 //! for the full system design and roadmap.
