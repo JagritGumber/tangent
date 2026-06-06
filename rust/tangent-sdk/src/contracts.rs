@@ -1,7 +1,8 @@
 //! Raw calldata helpers for Tangent's currently deployed primitive contracts.
 //!
-//! These helpers produce transaction or `eth_call` input bytes only. They do
-//! not perform RPC, decode return values, or assume a contract is deployed.
+//! These helpers produce transaction or `eth_call` input bytes plus minimal
+//! single-word return decoders. They do not perform RPC or assume a contract is
+//! deployed.
 
 use alloy_primitives::{keccak256, Address};
 
