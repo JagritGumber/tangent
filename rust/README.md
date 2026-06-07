@@ -43,10 +43,10 @@ Run the commands above locally until a Rust CI workflow is added to this reposit
 - `OrderLifecyclePlan` for composing submit, cancel, `isLive`, and `orderOf` calls around one signed order.
 - `OrderBookMaintenancePlan` for composing the permissionless `tick()` transaction used by keepers.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
-- `AccountOnboardingPlan` for composing permissionless account registration and account-id lookup calls.
+- `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration and account read calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
 - `MarketReadPlan` for composing market registry and mark-price read calls before order construction.
-- Typed read summaries for single-word collateral and market call results.
+- Typed read summaries for single-word account, collateral, and market call results.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
 - Minimal single-word ABI return decoders for balances, ids, addresses, and booleans.
 

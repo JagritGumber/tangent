@@ -38,7 +38,7 @@ pub mod signing;
 pub mod tx;
 
 pub use abi::AbiDecodeError;
-pub use account::AccountOnboardingPlan;
+pub use account::{AccountOnboardingPlan, AccountStatus, AccountStatusPlan};
 pub use collateral::{
     CollateralDepositPlan, CollateralStatus, CollateralStatusPlan, CollateralWithdrawPlan,
 };
