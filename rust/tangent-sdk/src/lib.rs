@@ -29,6 +29,7 @@ pub mod collateral;
 pub mod contracts;
 pub mod domain;
 mod eip712;
+pub mod lifecycle;
 pub mod manifest;
 pub mod market;
 pub mod order;
@@ -41,6 +42,7 @@ pub use account::AccountOnboardingPlan;
 pub use collateral::{CollateralDepositPlan, CollateralStatusPlan, CollateralWithdrawPlan};
 pub use contracts::{AccountManagerCalls, ERC20Calls, MarketRegistryCalls, USDCVaultCalls};
 pub use domain::DomainSeparatorInput;
+pub use lifecycle::OrderLifecyclePlan;
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
 pub use market::MarketReadPlan;
 pub use order::{

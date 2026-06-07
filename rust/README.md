@@ -40,6 +40,7 @@ Run the commands above locally until a Rust CI workflow is added to this reposit
 
 - Canonical `Order`, `OrderParams`, `OrderConstraints`, and EIP-712 domain/digest helpers matching `OrderTypes.sol`.
 - `PreparedOrder`, `OrderSignature`, and `SignedOrder` helpers for attaching externally produced signatures and encoding `OrderBook.submitOrder`.
+- `OrderLifecyclePlan` for composing submit, cancel, `isLive`, and `orderOf` calls around one signed order.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
 - `AccountOnboardingPlan` for composing permissionless account registration and account-id lookup calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.

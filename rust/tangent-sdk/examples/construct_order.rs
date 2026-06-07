@@ -8,7 +8,7 @@
 
 use alloy_primitives::Address;
 use tangent_sdk::{
-    DomainSeparatorInput, Order, OrderBookCalls, OrderConstraints, OrderParams, OrderSignature,
+    DomainSeparatorInput, Order, OrderConstraints, OrderLifecyclePlan, OrderParams, OrderSignature,
     Side, BASE_SCALE, PRICE_SCALE,
 };
 
@@ -44,6 +44,7 @@ fn main() {
     // owner wallet after signing `prepared.digest`.
     let signature = OrderSignature::from_bytes([0u8; OrderSignature::LEN]).expect("valid shape");
     let signed_order = prepared.attach_signature(signature);
+    let lifecycle = OrderLifecyclePlan::new(verifying_contract, signed_order.clone());
 
     println!("=== tangent-sdk example: constructed order ===");
     println!("EIP-712 domain:");
@@ -83,23 +84,17 @@ fn main() {
         hex::encode(tangent_sdk::SignedOrder::submit_order_selector())
     );
     println!("submitOrder calldata bytes:");
-    println!("  {}", signed_order.submit_order_calldata().len());
+    println!("  {}", lifecycle.submit_tx().data.len());
+    println!("submitOrder tx target:");
+    println!("  {}", lifecycle.submit_tx().to);
     println!("cancelOrder selector:");
-    println!(
-        "  0x{}",
-        hex::encode(OrderBookCalls::cancel_order_selector())
-    );
+    println!("  0x{}", hex::encode(&lifecycle.cancel_tx().data[..4]));
     println!("cancelOrder calldata:");
-    println!(
-        "  {}",
-        OrderBookCalls::cancel_order_calldata_hex(order_hash)
-    );
+    println!("  {}", lifecycle.cancel_tx().data_hex());
     println!("isLive selector:");
-    println!("  0x{}", hex::encode(OrderBookCalls::is_live_selector()));
+    println!("  0x{}", hex::encode(&lifecycle.is_live_call().data[..4]));
     println!("orderOf selector:");
-    println!("  0x{}", hex::encode(OrderBookCalls::order_of_selector()));
-    println!("tick selector:");
-    println!("  0x{}", hex::encode(OrderBookCalls::tick_selector()));
+    println!("  0x{}", hex::encode(&lifecycle.order_of_call().data[..4]));
     println!();
     println!(
         "(sign this digest with the account owner; RPC submission lands after full-stack deployment.)"
