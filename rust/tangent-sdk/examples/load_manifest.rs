@@ -5,7 +5,8 @@
 
 use tangent_sdk::{
     AccountManagerCalls, AccountOnboardingPlan, CollateralDepositPlan, CollateralStatusPlan,
-    CollateralWithdrawPlan, DeploymentManifest, ERC20Calls, MarketRegistryCalls, USDCVaultCalls,
+    CollateralWithdrawPlan, DeploymentManifest, ERC20Calls, MarketReadPlan, MarketRegistryCalls,
+    USDCVaultCalls,
 };
 
 fn main() {
@@ -49,6 +50,7 @@ fn main() {
         CollateralWithdrawPlan::from_manifest(&manifest, 1, 500_000, manifest.deployer);
     let status_plan = CollateralStatusPlan::from_manifest(&manifest, manifest.deployer, 1);
     let onboarding_plan = AccountOnboardingPlan::from_manifest(&manifest, manifest.deployer);
+    let market_plan = MarketReadPlan::from_manifest(&manifest, 1);
     println!(
         "sample register tx to   : {}",
         onboarding_plan.register_tx().to
@@ -61,6 +63,10 @@ fn main() {
     println!(
         "sample allowance call to: {}",
         status_plan.vault_allowance_call().to
+    );
+    println!(
+        "sample markPrice call to: {}",
+        market_plan.mark_price_call().to
     );
     println!("sample deposit tx to    : {}", deposit_plan.deposit_tx().to);
     println!(

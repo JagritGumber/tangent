@@ -43,6 +43,7 @@ Run the commands above locally until a Rust CI workflow is added to this reposit
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
 - `AccountOnboardingPlan` for composing permissionless account registration and account-id lookup calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
+- `MarketReadPlan` for composing market registry and mark-price read calls before order construction.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
 - Minimal single-word ABI return decoders for balances, ids, addresses, and booleans.
 
