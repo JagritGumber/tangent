@@ -1,0 +1,4 @@
+[build]
+jobs = 1
+incremental = false
+

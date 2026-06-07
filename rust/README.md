@@ -22,17 +22,29 @@ The workspace `Cargo.toml` reserves the names commented-out so the dependency gr
 
 ## Build
 
+This workspace is configured for low-resource local verification by default:
+`rust/.cargo/config.toml` sets `jobs = 1` and disables incremental builds to
+avoid Windows paging-file pressure during repeated SDK checks.
+
 ```bash
 cd rust
 cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo check --workspace
-cargo test --workspace
+cargo test -p tangent-sdk <module>::tests::<test_name>
+```
+
+For broader pre-push verification on a machine with enough headroom:
+
+```bash
+cd rust
+cargo clippy -p tangent-sdk --all-targets -- -D warnings
+cargo test -p tangent-sdk
 cargo run -p tangent-sdk --example construct_order
 cargo run -p tangent-sdk --example load_manifest
 ```
 
-Run the commands above locally until a Rust CI workflow is added to this repository.
+Avoid running test, clippy, and examples in parallel on memory-constrained
+Windows machines. The full workspace commands are still valid, but unnecessary
+while `tangent-sdk` is the only active crate.
 
 ## What the SDK does today
 
