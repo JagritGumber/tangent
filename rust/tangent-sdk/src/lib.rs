@@ -12,11 +12,12 @@
 //!
 //! Pre-1.0. This crate currently ships the canonical EIP-712 [`Order`] type
 //! mirroring `OrderTypes.sol`, signed-order calldata helpers, deployment
-//! manifest parsing, primitive contract calldata helpers, and minimal ABI
-//! return decoders. It does not yet open RPC connections, sign with Circle Dev
-//! Wallets, estimate gas, or broadcast transactions. The full RPC client
-//! (`TangentClient`), Circle Dev Wallet signing backend, and broadcast helpers
-//! land at v0.8 of the parent repo, alongside the keeper daemon.
+//! manifest parsing, primitive contract calldata helpers, typed workflow plans
+//! for account/collateral/market/order flows, and minimal ABI return decoders.
+//! It does not yet open RPC connections, sign with Circle Dev Wallets, estimate
+//! gas, or broadcast transactions. The full RPC client (`TangentClient`),
+//! Circle Dev Wallet signing backend, and broadcast helpers land at v0.8 of the
+//! parent repo, alongside the keeper daemon.
 //!
 //! See [`ARCHITECTURE.md`](https://github.com/JagritGumber/tangent/blob/main/ARCHITECTURE.md)
 //! for the full system design and roadmap.
