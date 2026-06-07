@@ -5,6 +5,32 @@ use serde::{Deserialize, Serialize};
 
 use crate::{DeploymentManifest, OrderBookCalls, SignedOrder, UnsignedCall, UnsignedTx};
 
+/// Permissionless OrderBook maintenance calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderBookMaintenancePlan {
+    pub order_book: Address,
+}
+
+impl OrderBookMaintenancePlan {
+    #[must_use]
+    pub const fn new(order_book: Address) -> Self {
+        Self { order_book }
+    }
+
+    #[must_use]
+    pub fn from_manifest(manifest: &DeploymentManifest) -> Option<Self> {
+        manifest.contracts.order_book.map(Self::new)
+    }
+
+    #[must_use]
+    pub fn tick_tx(&self) -> UnsignedTx {
+        UnsignedTx {
+            to: self.order_book,
+            data: OrderBookCalls::tick_calldata(),
+        }
+    }
+}
+
 /// Submit/read/cancel calls for one signed order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderLifecyclePlan {
@@ -127,5 +153,24 @@ mod tests {
         .expect("manifest parses");
 
         assert!(OrderLifecyclePlan::from_manifest(&manifest, signed_order()).is_none());
+    }
+
+    #[test]
+    fn builds_orderbook_maintenance_calls() {
+        let plan = OrderBookMaintenancePlan::new(Address::repeat_byte(0x20));
+        let tick = plan.tick_tx();
+
+        assert_eq!(tick.to, Address::repeat_byte(0x20));
+        assert_eq!(tick.data, OrderBookCalls::tick_selector());
+    }
+
+    #[test]
+    fn current_arc_manifest_has_no_maintenance_plan() {
+        let manifest = DeploymentManifest::from_json(include_str!(
+            "../../../docs/deployments/arc-testnet.json"
+        ))
+        .expect("manifest parses");
+
+        assert!(OrderBookMaintenancePlan::from_manifest(&manifest).is_none());
     }
 }

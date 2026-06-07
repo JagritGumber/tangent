@@ -8,8 +8,8 @@
 
 use alloy_primitives::Address;
 use tangent_sdk::{
-    DomainSeparatorInput, Order, OrderConstraints, OrderLifecyclePlan, OrderParams, OrderSignature,
-    Side, BASE_SCALE, PRICE_SCALE,
+    DomainSeparatorInput, Order, OrderBookMaintenancePlan, OrderConstraints, OrderLifecyclePlan,
+    OrderParams, OrderSignature, Side, BASE_SCALE, PRICE_SCALE,
 };
 
 fn main() {
@@ -45,6 +45,7 @@ fn main() {
     let signature = OrderSignature::from_bytes([0u8; OrderSignature::LEN]).expect("valid shape");
     let signed_order = prepared.attach_signature(signature);
     let lifecycle = OrderLifecyclePlan::new(verifying_contract, signed_order.clone());
+    let maintenance = OrderBookMaintenancePlan::new(verifying_contract);
 
     println!("=== tangent-sdk example: constructed order ===");
     println!("EIP-712 domain:");
@@ -95,6 +96,8 @@ fn main() {
     println!("  0x{}", hex::encode(&lifecycle.is_live_call().data[..4]));
     println!("orderOf selector:");
     println!("  0x{}", hex::encode(&lifecycle.order_of_call().data[..4]));
+    println!("tick selector:");
+    println!("  0x{}", hex::encode(&maintenance.tick_tx().data[..4]));
     println!();
     println!(
         "(sign this digest with the account owner; RPC submission lands after full-stack deployment.)"
