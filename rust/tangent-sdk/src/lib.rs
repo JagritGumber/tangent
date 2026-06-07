@@ -44,7 +44,7 @@ pub use collateral::{
 };
 pub use contracts::{AccountManagerCalls, ERC20Calls, MarketRegistryCalls, USDCVaultCalls};
 pub use domain::DomainSeparatorInput;
-pub use lifecycle::{OrderBookMaintenancePlan, OrderLifecyclePlan};
+pub use lifecycle::{OrderBookMaintenancePlan, OrderLifecyclePlan, OrderLifecycleStatus};
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
 pub use market::{MarketReadPlan, MarketReadSummary};
 pub use order::{

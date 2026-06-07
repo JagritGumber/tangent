@@ -3,7 +3,9 @@
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{DeploymentManifest, OrderBookCalls, SignedOrder, UnsignedCall, UnsignedTx};
+use crate::{
+    AbiDecodeError, DeploymentManifest, OrderBookCalls, SignedOrder, UnsignedCall, UnsignedTx,
+};
 
 /// Permissionless OrderBook maintenance calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +38,15 @@ impl OrderBookMaintenancePlan {
 pub struct OrderLifecyclePlan {
     pub order_book: Address,
     pub signed_order: SignedOrder,
+}
+
+/// Decoded single-word order lifecycle reads.
+///
+/// `orderOf(orderHash)` returns richer stored-order metadata and is not decoded
+/// here yet; this status covers the simple `isLive(orderHash)` read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderLifecycleStatus {
+    pub is_live: bool,
 }
 
 impl OrderLifecyclePlan {
@@ -91,6 +102,15 @@ impl OrderLifecyclePlan {
             data: OrderBookCalls::order_of_calldata(self.order_hash()),
         }
     }
+
+    pub fn decode_is_live_return(
+        &self,
+        is_live_return: &[u8],
+    ) -> Result<OrderLifecycleStatus, AbiDecodeError> {
+        Ok(OrderLifecycleStatus {
+            is_live: OrderBookCalls::decode_is_live_return(is_live_return)?,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -143,6 +163,17 @@ mod tests {
         assert_eq!(order_of.to, Address::repeat_byte(0x20));
         assert_eq!(&order_of.data[..4], &OrderBookCalls::order_of_selector());
         assert_eq!(&order_of.data[4..36], order_hash.as_slice());
+    }
+
+    #[test]
+    fn decodes_order_lifecycle_status() {
+        let plan = OrderLifecyclePlan::new(Address::repeat_byte(0x20), signed_order());
+        let mut yes = [0u8; 32];
+        yes[31] = 1;
+
+        let decoded = plan.decode_is_live_return(&yes).expect("status decodes");
+
+        assert_eq!(decoded, OrderLifecycleStatus { is_live: true });
     }
 
     #[test]
