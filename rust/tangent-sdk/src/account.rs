@@ -3,7 +3,7 @@
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{AccountManagerCalls, DeploymentManifest, UnsignedTx};
+use crate::{AccountManagerCalls, DeploymentManifest, UnsignedCall, UnsignedTx};
 
 /// Permissionless Tangent account onboarding workflow.
 ///
@@ -39,8 +39,8 @@ impl AccountOnboardingPlan {
     }
 
     #[must_use]
-    pub fn account_id_of_call(&self) -> UnsignedTx {
-        UnsignedTx {
+    pub fn account_id_of_call(&self) -> UnsignedCall {
+        UnsignedCall {
             to: self.account_manager,
             data: AccountManagerCalls::account_id_of_calldata(self.owner),
         }

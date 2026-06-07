@@ -42,7 +42,7 @@ Run the commands above locally until a Rust CI workflow is added to this reposit
 - `PreparedOrder`, `OrderSignature`, and `SignedOrder` helpers for attaching externally produced signatures and encoding `OrderBook.submitOrder`.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
 - `AccountOnboardingPlan` for composing permissionless account registration and account-id lookup calls.
-- `CollateralDepositPlan` and `CollateralWithdrawPlan` for composing unsigned collateral transactions against `USDCVault`.
+- `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
 - Minimal single-word ABI return decoders for balances, ids, addresses, and booleans.
 

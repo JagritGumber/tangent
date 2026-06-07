@@ -37,7 +37,7 @@ pub mod tx;
 
 pub use abi::AbiDecodeError;
 pub use account::AccountOnboardingPlan;
-pub use collateral::{CollateralDepositPlan, CollateralWithdrawPlan};
+pub use collateral::{CollateralDepositPlan, CollateralStatusPlan, CollateralWithdrawPlan};
 pub use contracts::{AccountManagerCalls, ERC20Calls, MarketRegistryCalls, USDCVaultCalls};
 pub use domain::DomainSeparatorInput;
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
@@ -46,4 +46,4 @@ pub use order::{
 };
 pub use orderbook::OrderBookCalls;
 pub use signing::{OrderSignature, PreparedOrder, SignatureError, SignedOrder};
-pub use tx::UnsignedTx;
+pub use tx::{UnsignedCall, UnsignedTx};

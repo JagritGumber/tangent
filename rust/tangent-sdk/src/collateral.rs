@@ -3,7 +3,7 @@
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{DeploymentManifest, ERC20Calls, USDCVaultCalls, UnsignedTx};
+use crate::{DeploymentManifest, ERC20Calls, USDCVaultCalls, UnsignedCall, UnsignedTx};
 
 /// Two-step USDC collateral deposit workflow.
 ///
@@ -107,6 +107,88 @@ impl CollateralWithdrawPlan {
     }
 }
 
+/// Read-side USDC collateral status calls for one owner/account pair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollateralStatusPlan {
+    pub usdc: Address,
+    pub vault: Address,
+    pub owner: Address,
+    pub account_id: u128,
+}
+
+impl CollateralStatusPlan {
+    #[must_use]
+    pub const fn new(usdc: Address, vault: Address, owner: Address, account_id: u128) -> Self {
+        Self {
+            usdc,
+            vault,
+            owner,
+            account_id,
+        }
+    }
+
+    #[must_use]
+    pub fn from_manifest(manifest: &DeploymentManifest, owner: Address, account_id: u128) -> Self {
+        Self::new(
+            manifest.constants.usdc,
+            manifest.contracts.usdc_vault,
+            owner,
+            account_id,
+        )
+    }
+
+    #[must_use]
+    pub fn usdc_balance_call(&self) -> UnsignedCall {
+        UnsignedCall {
+            to: self.usdc,
+            data: ERC20Calls::balance_of_calldata(self.owner),
+        }
+    }
+
+    #[must_use]
+    pub fn vault_allowance_call(&self) -> UnsignedCall {
+        UnsignedCall {
+            to: self.usdc,
+            data: ERC20Calls::allowance_calldata(self.owner, self.vault),
+        }
+    }
+
+    #[must_use]
+    pub fn free_balance_call(&self) -> UnsignedCall {
+        UnsignedCall {
+            to: self.vault,
+            data: USDCVaultCalls::free_balance_of_calldata(self.account_id),
+        }
+    }
+
+    #[must_use]
+    pub fn locked_balance_call(&self) -> UnsignedCall {
+        UnsignedCall {
+            to: self.vault,
+            data: USDCVaultCalls::locked_balance_of_calldata(self.account_id),
+        }
+    }
+
+    #[must_use]
+    pub fn total_balance_call(&self) -> UnsignedCall {
+        UnsignedCall {
+            to: self.vault,
+            data: USDCVaultCalls::total_balance_of_calldata(self.account_id),
+        }
+    }
+
+    #[must_use]
+    pub fn calls(&self) -> [UnsignedCall; 5] {
+        [
+            self.usdc_balance_call(),
+            self.vault_allowance_call(),
+            self.free_balance_call(),
+            self.locked_balance_call(),
+            self.total_balance_call(),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +261,55 @@ mod tests {
         assert_eq!(plan.vault, manifest.contracts.usdc_vault);
         assert_eq!(plan.to, addr(0x30));
         assert_eq!(plan.withdraw_tx().to, manifest.contracts.usdc_vault);
+    }
+
+    #[test]
+    fn builds_collateral_status_calls() {
+        let plan = CollateralStatusPlan::new(addr(0x10), addr(0x20), addr(0x30), 7);
+        let [wallet_balance, allowance, free, locked, total] = plan.calls();
+
+        assert_eq!(wallet_balance.to, addr(0x10));
+        assert_eq!(
+            &wallet_balance.data[..4],
+            &ERC20Calls::balance_of_selector()
+        );
+        assert_eq!(&wallet_balance.data[16..36], addr(0x30).as_slice());
+
+        assert_eq!(allowance.to, addr(0x10));
+        assert_eq!(&allowance.data[..4], &ERC20Calls::allowance_selector());
+        assert_eq!(&allowance.data[16..36], addr(0x30).as_slice());
+        assert_eq!(&allowance.data[48..68], addr(0x20).as_slice());
+
+        assert_eq!(free.to, addr(0x20));
+        assert_eq!(&free.data[..4], &USDCVaultCalls::free_balance_of_selector());
+        assert_eq!(hex::encode(&free.data[4..36]), format!("{:064x}", 7));
+
+        assert_eq!(locked.to, addr(0x20));
+        assert_eq!(
+            &locked.data[..4],
+            &USDCVaultCalls::locked_balance_of_selector()
+        );
+
+        assert_eq!(total.to, addr(0x20));
+        assert_eq!(
+            &total.data[..4],
+            &USDCVaultCalls::total_balance_of_selector()
+        );
+    }
+
+    #[test]
+    fn builds_collateral_status_plan_from_deployment_manifest() {
+        let manifest = DeploymentManifest::from_json(include_str!(
+            "../../../docs/deployments/arc-testnet.json"
+        ))
+        .expect("manifest parses");
+
+        let plan = CollateralStatusPlan::from_manifest(&manifest, addr(0x30), 1);
+
+        assert_eq!(plan.usdc, manifest.constants.usdc);
+        assert_eq!(plan.vault, manifest.contracts.usdc_vault);
+        assert_eq!(plan.owner, addr(0x30));
+        assert_eq!(plan.usdc_balance_call().to, manifest.constants.usdc);
+        assert_eq!(plan.free_balance_call().to, manifest.contracts.usdc_vault);
     }
 }
