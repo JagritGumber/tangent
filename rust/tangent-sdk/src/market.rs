@@ -3,13 +3,23 @@
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{DeploymentManifest, MarketRegistryCalls, UnsignedCall};
+use crate::{AbiDecodeError, DeploymentManifest, MarketRegistryCalls, UnsignedCall};
 
 /// Read-side Tangent market discovery calls.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarketReadPlan {
     pub market_registry: Address,
     pub market_id: u128,
+}
+
+/// Decoded single-word market reads.
+///
+/// `market(marketId)` returns richer metadata and is intentionally not decoded
+/// here yet; this struct covers the simple calls that are single ABI words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketReadSummary {
+    pub total_markets: u128,
+    pub mark_price: u128,
 }
 
 impl MarketReadPlan {
@@ -57,6 +67,17 @@ impl MarketReadPlan {
             self.market_call(),
             self.mark_price_call(),
         ]
+    }
+
+    pub fn decode_summary_returns(
+        &self,
+        total_markets_return: &[u8],
+        mark_price_return: &[u8],
+    ) -> Result<MarketReadSummary, AbiDecodeError> {
+        Ok(MarketReadSummary {
+            total_markets: MarketRegistryCalls::decode_total_markets_return(total_markets_return)?,
+            mark_price: MarketRegistryCalls::decode_mark_price_return(mark_price_return)?,
+        })
     }
 }
 
@@ -109,6 +130,31 @@ mod tests {
         assert_eq!(
             plan.mark_price_call().to,
             manifest.contracts.market_registry
+        );
+    }
+
+    #[test]
+    fn decodes_market_read_summary_returns() {
+        fn word(value: u8) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            out[31] = value;
+            out
+        }
+
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let total = word(2);
+        let mark = word(9);
+
+        let decoded = plan
+            .decode_summary_returns(&total, &mark)
+            .expect("summary decodes");
+
+        assert_eq!(
+            decoded,
+            MarketReadSummary {
+                total_markets: 2,
+                mark_price: 9,
+            }
         );
     }
 }

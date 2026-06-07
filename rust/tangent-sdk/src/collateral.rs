@@ -3,7 +3,9 @@
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{DeploymentManifest, ERC20Calls, USDCVaultCalls, UnsignedCall, UnsignedTx};
+use crate::{
+    AbiDecodeError, DeploymentManifest, ERC20Calls, USDCVaultCalls, UnsignedCall, UnsignedTx,
+};
 
 /// Two-step USDC collateral deposit workflow.
 ///
@@ -116,6 +118,16 @@ pub struct CollateralStatusPlan {
     pub account_id: u128,
 }
 
+/// Decoded collateral status for one owner/account pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollateralStatus {
+    pub usdc_balance: u128,
+    pub vault_allowance: u128,
+    pub free_balance: u128,
+    pub locked_balance: u128,
+    pub total_balance: u128,
+}
+
 impl CollateralStatusPlan {
     #[must_use]
     pub const fn new(usdc: Address, vault: Address, owner: Address, account_id: u128) -> Self {
@@ -186,6 +198,17 @@ impl CollateralStatusPlan {
             self.locked_balance_call(),
             self.total_balance_call(),
         ]
+    }
+
+    /// Decode returns from [`Self::calls`] in the same fixed order.
+    pub fn decode_returns(&self, returns: [&[u8]; 5]) -> Result<CollateralStatus, AbiDecodeError> {
+        Ok(CollateralStatus {
+            usdc_balance: ERC20Calls::decode_balance_of_return(returns[0])?,
+            vault_allowance: ERC20Calls::decode_allowance_return(returns[1])?,
+            free_balance: USDCVaultCalls::decode_free_balance_of_return(returns[2])?,
+            locked_balance: USDCVaultCalls::decode_locked_balance_of_return(returns[3])?,
+            total_balance: USDCVaultCalls::decode_total_balance_of_return(returns[4])?,
+        })
     }
 }
 
@@ -311,5 +334,36 @@ mod tests {
         assert_eq!(plan.owner, addr(0x30));
         assert_eq!(plan.usdc_balance_call().to, manifest.constants.usdc);
         assert_eq!(plan.free_balance_call().to, manifest.contracts.usdc_vault);
+    }
+
+    #[test]
+    fn decodes_collateral_status_returns() {
+        fn word(value: u8) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            out[31] = value;
+            out
+        }
+
+        let plan = CollateralStatusPlan::new(addr(0x10), addr(0x20), addr(0x30), 7);
+        let wallet = word(1);
+        let allowance = word(2);
+        let free = word(3);
+        let locked = word(4);
+        let total = word(7);
+
+        let decoded = plan
+            .decode_returns([&wallet, &allowance, &free, &locked, &total])
+            .expect("status decodes");
+
+        assert_eq!(
+            decoded,
+            CollateralStatus {
+                usdc_balance: 1,
+                vault_allowance: 2,
+                free_balance: 3,
+                locked_balance: 4,
+                total_balance: 7,
+            }
+        );
     }
 }

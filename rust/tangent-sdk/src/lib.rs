@@ -39,12 +39,14 @@ pub mod tx;
 
 pub use abi::AbiDecodeError;
 pub use account::AccountOnboardingPlan;
-pub use collateral::{CollateralDepositPlan, CollateralStatusPlan, CollateralWithdrawPlan};
+pub use collateral::{
+    CollateralDepositPlan, CollateralStatus, CollateralStatusPlan, CollateralWithdrawPlan,
+};
 pub use contracts::{AccountManagerCalls, ERC20Calls, MarketRegistryCalls, USDCVaultCalls};
 pub use domain::DomainSeparatorInput;
 pub use lifecycle::{OrderBookMaintenancePlan, OrderLifecyclePlan};
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
-pub use market::MarketReadPlan;
+pub use market::{MarketReadPlan, MarketReadSummary};
 pub use order::{
     Order, OrderBuilder, OrderConstraints, OrderError, OrderParams, Side, BASE_SCALE, PRICE_SCALE,
 };
