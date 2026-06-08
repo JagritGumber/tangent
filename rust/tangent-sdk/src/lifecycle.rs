@@ -56,6 +56,14 @@ pub struct OrderLifecycleStatus {
     pub stored_order: Option<Order>,
 }
 
+impl OrderLifecycleStatus {
+    /// True when `orderOf(orderHash)` reported that the order exists.
+    #[must_use]
+    pub fn is_known(&self) -> bool {
+        self.stored_order.is_some()
+    }
+}
+
 impl OrderLifecyclePlan {
     #[must_use]
     pub const fn new(order_book: Address, signed_order: SignedOrder) -> Self {
@@ -244,6 +252,7 @@ mod tests {
                 stored_order: Some(Order::new(7, 1, true, 9, 8, 6, 5, false)),
             }
         );
+        assert!(decoded.is_known());
     }
 
     #[test]
@@ -263,6 +272,7 @@ mod tests {
                 stored_order: None,
             }
         );
+        assert!(!decoded.is_known());
     }
 
     #[test]
