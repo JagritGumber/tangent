@@ -56,6 +56,8 @@ compiles all SDK targets, so use it when the machine has enough headroom.
 Avoid running test, clippy, and examples in parallel on memory-constrained
 Windows machines. The full workspace commands are still valid, but unnecessary
 while `tangent-sdk` is the only active crate.
+The `load_manifest` example also shows which optional full-stack plans are
+available from the checked-in manifest without opening RPC connections.
 
 ## What the SDK does today
 

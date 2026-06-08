@@ -5,8 +5,8 @@
 
 use tangent_sdk::{
     AccountManagerCalls, AccountOnboardingPlan, AccountStatusPlan, CollateralDepositPlan,
-    CollateralStatusPlan, CollateralWithdrawPlan, DeploymentManifest, ERC20Calls, MarketReadPlan,
-    MarketRegistryCalls, USDCVaultCalls,
+    CollateralStatusPlan, CollateralWithdrawPlan, DeploymentManifest, ERC20Calls,
+    LiquidationReadPlan, MarketReadPlan, MarketRegistryCalls, SettlementReadPlan, USDCVaultCalls,
 };
 
 fn main() {
@@ -22,6 +22,27 @@ fn main() {
     println!("AccountManager : {}", manifest.contracts.account_manager);
     println!("USDCVault      : {}", manifest.contracts.usdc_vault);
     println!("MarketRegistry : {}", manifest.contracts.market_registry);
+    println!(
+        "OrderBook      : {}",
+        manifest
+            .contracts
+            .order_book
+            .map_or_else(|| "not present".to_owned(), |address| address.to_string())
+    );
+    println!(
+        "Settlement     : {}",
+        manifest
+            .contracts
+            .settlement_engine
+            .map_or_else(|| "not present".to_owned(), |address| address.to_string())
+    );
+    println!(
+        "Liquidation    : {}",
+        manifest
+            .contracts
+            .liquidation_keeper
+            .map_or_else(|| "not present".to_owned(), |address| address.to_string())
+    );
     println!(
         "USDC approve selector   : 0x{}",
         hex::encode(ERC20Calls::approve_selector())
@@ -52,6 +73,8 @@ fn main() {
     let onboarding_plan = AccountOnboardingPlan::from_manifest(&manifest, manifest.deployer);
     let account_status_plan = AccountStatusPlan::from_manifest(&manifest, manifest.deployer, 1);
     let market_plan = MarketReadPlan::from_manifest(&manifest, 1);
+    let settlement_plan = SettlementReadPlan::from_manifest(&manifest, 1, 1);
+    let liquidation_plan = LiquidationReadPlan::from_manifest(&manifest, 1, 1);
     println!(
         "sample register tx to   : {}",
         onboarding_plan.register_tx().to
@@ -78,6 +101,29 @@ fn main() {
         "sample withdraw tx to   : {}",
         withdraw_plan.withdraw_tx().to
     );
+
+    match settlement_plan {
+        Some(plan) => {
+            println!("sample position call to : {}", plan.position_of_call().to);
+            println!("sample margin call to   : {}", plan.margin_state_call().to);
+        }
+        None => {
+            println!("sample settlement reads : unavailable in this v0.1 manifest");
+        }
+    }
+
+    match liquidation_plan {
+        Some(plan) => {
+            println!(
+                "sample liq state call to: {}",
+                plan.liquidation_state_call().to
+            );
+            println!("sample liquidate tx to  : {}", plan.liquidate_tx().to);
+        }
+        None => {
+            println!("sample liquidation reads: unavailable in this v0.1 manifest");
+        }
+    }
 
     match manifest.order_book_domain() {
         Some(domain) => {
