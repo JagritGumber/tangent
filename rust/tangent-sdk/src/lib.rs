@@ -13,8 +13,8 @@
 //! Pre-1.0. This crate currently ships the canonical EIP-712 [`Order`] type
 //! mirroring `OrderTypes.sol`, signed-order calldata helpers, deployment
 //! manifest parsing, primitive contract calldata helpers, typed workflow plans
-//! for account/collateral/market/order/liquidation flows, and minimal ABI
-//! return decoders.
+//! for account/collateral/market/order/settlement/liquidation flows, and
+//! minimal ABI return decoders.
 //! It does not yet open RPC connections, sign with Circle Dev Wallets, estimate
 //! gas, or broadcast transactions. The full RPC client (`TangentClient`),
 //! Circle Dev Wallet signing backend, and broadcast helpers land at v0.8 of the
@@ -37,6 +37,7 @@ pub mod manifest;
 pub mod market;
 pub mod order;
 pub mod orderbook;
+pub mod settlement;
 pub mod signing;
 pub mod tx;
 
@@ -46,7 +47,8 @@ pub use collateral::{
     CollateralDepositPlan, CollateralStatus, CollateralStatusPlan, CollateralWithdrawPlan,
 };
 pub use contracts::{
-    AccountManagerCalls, ERC20Calls, LiquidationKeeperCalls, MarketRegistryCalls, USDCVaultCalls,
+    AccountManagerCalls, ERC20Calls, LiquidationKeeperCalls, MarketRegistryCalls, SettlementCalls,
+    USDCVaultCalls,
 };
 pub use domain::DomainSeparatorInput;
 pub use lifecycle::{OrderBookMaintenancePlan, OrderLifecyclePlan, OrderLifecycleStatus};
@@ -57,5 +59,6 @@ pub use order::{
     Order, OrderBuilder, OrderConstraints, OrderError, OrderParams, Side, BASE_SCALE, PRICE_SCALE,
 };
 pub use orderbook::OrderBookCalls;
+pub use settlement::{MarginStatus, PositionStatus, SettlementReadPlan};
 pub use signing::{OrderSignature, PreparedOrder, SignatureError, SignedOrder};
 pub use tx::{UnsignedCall, UnsignedTx};

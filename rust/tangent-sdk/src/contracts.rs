@@ -99,6 +99,74 @@ impl LiquidationKeeperCalls {
     }
 }
 
+/// ABI helpers for `ISettlement` read and validation calls.
+pub struct SettlementCalls;
+
+impl SettlementCalls {
+    pub const POSITION_OF_SIGNATURE: &'static str = "positionOf(uint256,uint256)";
+    pub const MARGIN_STATE_SIGNATURE: &'static str = "marginState(uint256)";
+    pub const VALIDATE_WITHDRAWAL_SIGNATURE: &'static str = "validateWithdrawal(uint256,uint256)";
+
+    #[must_use]
+    pub fn position_of_selector() -> [u8; 4] {
+        selector(Self::POSITION_OF_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn position_of_calldata(account_id: u128, market_id: u128) -> Vec<u8> {
+        two_u128_call(Self::POSITION_OF_SIGNATURE, account_id, market_id)
+    }
+
+    #[must_use]
+    pub fn margin_state_selector() -> [u8; 4] {
+        selector(Self::MARGIN_STATE_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn margin_state_calldata(account_id: u128) -> Vec<u8> {
+        u128_call(Self::MARGIN_STATE_SIGNATURE, account_id)
+    }
+
+    #[must_use]
+    pub fn validate_withdrawal_selector() -> [u8; 4] {
+        selector(Self::VALIDATE_WITHDRAWAL_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn validate_withdrawal_calldata(account_id: u128, amount: u128) -> Vec<u8> {
+        two_u128_call(Self::VALIDATE_WITHDRAWAL_SIGNATURE, account_id, amount)
+    }
+
+    pub fn decode_position_of_return(data: &[u8]) -> Result<(i128, u128, u128), AbiDecodeError> {
+        if data.len() != 96 {
+            return Err(AbiDecodeError::InvalidLength {
+                expected: 96,
+                actual: data.len(),
+            });
+        }
+
+        Ok((
+            crate::abi::decode_i128(&data[0..32])?,
+            crate::abi::decode_u128(&data[32..64])?,
+            crate::abi::decode_u128(&data[64..96])?,
+        ))
+    }
+
+    pub fn decode_margin_state_return(data: &[u8]) -> Result<(i128, u128), AbiDecodeError> {
+        if data.len() != 64 {
+            return Err(AbiDecodeError::InvalidLength {
+                expected: 64,
+                actual: data.len(),
+            });
+        }
+
+        Ok((
+            crate::abi::decode_i128(&data[0..32])?,
+            crate::abi::decode_u128(&data[32..64])?,
+        ))
+    }
+}
+
 /// ABI helpers for standard ERC-20 calls used by the USDC collateral flow.
 pub struct ERC20Calls;
 
@@ -487,6 +555,29 @@ mod tests {
     }
 
     #[test]
+    fn settlement_calls_encode_expected_shape() {
+        let position = SettlementCalls::position_of_calldata(7, 1);
+        assert_eq!(position.len(), 68);
+        assert_eq!(&position[..4], &SettlementCalls::position_of_selector());
+        assert_eq!(hex::encode(&position[4..36]), format!("{:064x}", 7));
+        assert_eq!(hex::encode(&position[36..68]), format!("{:064x}", 1));
+
+        let margin = SettlementCalls::margin_state_calldata(7);
+        assert_eq!(margin.len(), 36);
+        assert_eq!(&margin[..4], &SettlementCalls::margin_state_selector());
+        assert_eq!(hex::encode(&margin[4..36]), format!("{:064x}", 7));
+
+        let withdrawal = SettlementCalls::validate_withdrawal_calldata(7, 1_000);
+        assert_eq!(withdrawal.len(), 68);
+        assert_eq!(
+            &withdrawal[..4],
+            &SettlementCalls::validate_withdrawal_selector()
+        );
+        assert_eq!(hex::encode(&withdrawal[4..36]), format!("{:064x}", 7));
+        assert_eq!(hex::encode(&withdrawal[36..68]), format!("{:064x}", 1_000));
+    }
+
+    #[test]
     fn address_and_multi_arg_calls_encode_expected_shape() {
         let account_id = AccountManagerCalls::account_id_of_calldata(addr());
         assert_eq!(account_id.len(), 36);
@@ -570,6 +661,37 @@ mod tests {
         assert_eq!(
             LiquidationKeeperCalls::decode_liquidation_state_return(&data).expect("state decodes"),
             (true, -7, 9)
+        );
+    }
+
+    #[test]
+    fn decodes_settlement_read_returns() {
+        let mut size = [0xffu8; 32];
+        size[16..].copy_from_slice(&(-7i128).to_be_bytes());
+
+        let mut entry_price = [0u8; 32];
+        entry_price[31] = 8;
+
+        let mut locked_margin = [0u8; 32];
+        locked_margin[31] = 9;
+
+        let mut position = Vec::new();
+        position.extend_from_slice(&size);
+        position.extend_from_slice(&entry_price);
+        position.extend_from_slice(&locked_margin);
+
+        assert_eq!(
+            SettlementCalls::decode_position_of_return(&position).expect("position decodes"),
+            (-7, 8, 9)
+        );
+
+        let mut margin = Vec::new();
+        margin.extend_from_slice(&size);
+        margin.extend_from_slice(&locked_margin);
+
+        assert_eq!(
+            SettlementCalls::decode_margin_state_return(&margin).expect("margin decodes"),
+            (-7, 9)
         );
     }
 }
