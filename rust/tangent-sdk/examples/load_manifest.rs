@@ -92,6 +92,10 @@ fn main() {
         onboarding_plan.register_tx().to
     );
     println!(
+        "account onboarding txs  : {} tx",
+        onboarding_plan.transactions().len()
+    );
+    println!(
         "sample accountId call to: {}",
         onboarding_plan.account_id_of_call().to
     );
@@ -122,8 +126,16 @@ fn main() {
     );
     println!("sample deposit tx to    : {}", deposit_plan.deposit_tx().to);
     println!(
+        "collateral deposit txs  : {} txs",
+        deposit_plan.transactions().len()
+    );
+    println!(
         "sample withdraw tx to   : {}",
         withdraw_plan.withdraw_tx().to
+    );
+    println!(
+        "collateral withdraw txs : {} tx",
+        withdraw_plan.transactions().len()
     );
 
     match settlement_plan {
@@ -144,6 +156,7 @@ fn main() {
                 plan.liquidation_state_call().to
             );
             println!("sample liquidate tx to  : {}", plan.liquidate_tx().to);
+            println!("liquidation txs         : {} tx", plan.transactions().len());
             println!("liquidation reads       : {} calls", plan.calls().len());
         }
         None => {
