@@ -108,6 +108,18 @@ fn main() {
         "sample markPrice call to: {}",
         market_plan.mark_price_call().to
     );
+    println!(
+        "account status reads    : {} calls",
+        account_status_plan.calls().len()
+    );
+    println!(
+        "collateral status reads : {} calls",
+        status_plan.calls().len()
+    );
+    println!(
+        "market status reads     : {} calls",
+        market_plan.calls().len()
+    );
     println!("sample deposit tx to    : {}", deposit_plan.deposit_tx().to);
     println!(
         "sample withdraw tx to   : {}",
@@ -118,6 +130,7 @@ fn main() {
         Some(plan) => {
             println!("sample position call to : {}", plan.position_of_call().to);
             println!("sample margin call to   : {}", plan.margin_state_call().to);
+            println!("settlement status reads : {} calls", plan.calls().len());
         }
         None => {
             println!("sample settlement reads : unavailable in this v0.1 manifest");
@@ -131,6 +144,7 @@ fn main() {
                 plan.liquidation_state_call().to
             );
             println!("sample liquidate tx to  : {}", plan.liquidate_tx().to);
+            println!("liquidation reads       : {} calls", plan.calls().len());
         }
         None => {
             println!("sample liquidation reads: unavailable in this v0.1 manifest");
