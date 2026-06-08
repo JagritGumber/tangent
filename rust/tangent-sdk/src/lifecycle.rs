@@ -4,7 +4,8 @@ use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AbiDecodeError, DeploymentManifest, OrderBookCalls, SignedOrder, UnsignedCall, UnsignedTx,
+    AbiDecodeError, DeploymentManifest, Order, OrderBookCalls, SignedOrder, UnsignedCall,
+    UnsignedTx,
 };
 
 /// Permissionless OrderBook maintenance calls.
@@ -45,13 +46,14 @@ pub struct OrderLifecyclePlan {
     pub signed_order: SignedOrder,
 }
 
-/// Decoded single-word order lifecycle reads.
+/// Decoded order lifecycle reads.
 ///
-/// `orderOf(orderHash)` returns richer stored-order metadata and is not decoded
-/// here yet; this status covers the simple `isLive(orderHash)` read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// `is_live` is the current live predicate. `stored_order` is present when
+/// `orderOf(orderHash)` reports that the order was known to the book.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderLifecycleStatus {
     pub is_live: bool,
+    pub stored_order: Option<Order>,
 }
 
 impl OrderLifecyclePlan {
@@ -119,18 +121,27 @@ impl OrderLifecyclePlan {
     ) -> Result<OrderLifecycleStatus, AbiDecodeError> {
         Ok(OrderLifecycleStatus {
             is_live: OrderBookCalls::decode_is_live_return(is_live_return)?,
+            stored_order: None,
         })
     }
 
-    /// Decode the single-word lifecycle status from [`Self::calls`].
-    ///
-    /// The second `orderOf(orderHash)` return is intentionally ignored until
-    /// the SDK exposes a typed decoder for that richer tuple.
+    pub fn decode_order_of_return(
+        &self,
+        order_of_return: &[u8],
+    ) -> Result<Option<Order>, AbiDecodeError> {
+        let (order, exists) = OrderBookCalls::decode_order_of_return(order_of_return)?;
+        Ok(exists.then_some(order))
+    }
+
+    /// Decode returns from [`Self::calls`] in the same fixed order.
     pub fn decode_returns(
         &self,
         returns: [&[u8]; 2],
     ) -> Result<OrderLifecycleStatus, AbiDecodeError> {
-        self.decode_is_live_return(returns[0])
+        Ok(OrderLifecycleStatus {
+            is_live: OrderBookCalls::decode_is_live_return(returns[0])?,
+            stored_order: self.decode_order_of_return(returns[1])?,
+        })
     }
 }
 
@@ -196,7 +207,13 @@ mod tests {
 
         let decoded = plan.decode_is_live_return(&yes).expect("status decodes");
 
-        assert_eq!(decoded, OrderLifecycleStatus { is_live: true });
+        assert_eq!(
+            decoded,
+            OrderLifecycleStatus {
+                is_live: true,
+                stored_order: None,
+            }
+        );
     }
 
     #[test]
@@ -204,13 +221,24 @@ mod tests {
         let plan = OrderLifecyclePlan::new(Address::repeat_byte(0x20), signed_order());
         let mut yes = [0u8; 32];
         yes[31] = 1;
-        let order_tuple_placeholder = [];
+        let mut order_return = Vec::new();
+        for word in [7u8, 1, 1, 9, 8, 6, 5, 0, 1] {
+            let mut encoded = [0u8; 32];
+            encoded[31] = word;
+            order_return.extend_from_slice(&encoded);
+        }
 
         let decoded = plan
-            .decode_returns([&yes, &order_tuple_placeholder])
+            .decode_returns([&yes, &order_return])
             .expect("status decodes");
 
-        assert_eq!(decoded, OrderLifecycleStatus { is_live: true });
+        assert_eq!(
+            decoded,
+            OrderLifecycleStatus {
+                is_live: true,
+                stored_order: Some(Order::new(7, 1, true, 9, 8, 6, 5, false)),
+            }
+        );
     }
 
     #[test]

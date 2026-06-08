@@ -6,7 +6,7 @@
 
 use alloy_primitives::{keccak256, B256};
 
-use crate::AbiDecodeError;
+use crate::{AbiDecodeError, Order};
 
 fn selector(signature: &str) -> [u8; 4] {
     let hash = keccak256(signature.as_bytes());
@@ -90,6 +90,34 @@ impl OrderBookCalls {
     pub fn decode_is_live_return(data: &[u8]) -> Result<bool, AbiDecodeError> {
         crate::abi::decode_bool(data)
     }
+
+    pub fn decode_order_of_return(data: &[u8]) -> Result<(Order, bool), AbiDecodeError> {
+        if data.len() != 288 {
+            return Err(AbiDecodeError::InvalidLength {
+                expected: 288,
+                actual: data.len(),
+            });
+        }
+
+        let expiry = crate::abi::decode_u128(&data[192..224])?;
+        if expiry > u64::MAX as u128 {
+            return Err(AbiDecodeError::UintOverflow);
+        }
+
+        Ok((
+            Order::new(
+                crate::abi::decode_u128(&data[0..32])?,
+                crate::abi::decode_u128(&data[32..64])?,
+                crate::abi::decode_bool(&data[64..96])?,
+                crate::abi::decode_u128(&data[96..128])?,
+                crate::abi::decode_u128(&data[128..160])?,
+                crate::abi::decode_u128(&data[160..192])?,
+                expiry as u64,
+                crate::abi::decode_bool(&data[224..256])?,
+            ),
+            crate::abi::decode_bool(&data[256..288])?,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -140,5 +168,30 @@ mod tests {
         let mut word = [0u8; 32];
         word[31] = 1;
         assert!(OrderBookCalls::decode_is_live_return(&word).expect("is live"));
+    }
+
+    #[test]
+    fn decodes_order_of_return() {
+        fn word(value: u8) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            out[31] = value;
+            out
+        }
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&word(7));
+        data.extend_from_slice(&word(1));
+        data.extend_from_slice(&word(1));
+        data.extend_from_slice(&word(9));
+        data.extend_from_slice(&word(8));
+        data.extend_from_slice(&word(6));
+        data.extend_from_slice(&word(5));
+        data.extend_from_slice(&word(0));
+        data.extend_from_slice(&word(1));
+
+        let (order, exists) = OrderBookCalls::decode_order_of_return(&data).expect("order decodes");
+
+        assert!(exists);
+        assert_eq!(order, Order::new(7, 1, true, 9, 8, 6, 5, false));
     }
 }
