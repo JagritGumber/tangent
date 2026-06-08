@@ -46,6 +46,11 @@ fn main() {
     let signed_order = prepared.attach_signature(signature);
     let lifecycle = OrderLifecyclePlan::new(verifying_contract, signed_order.clone());
     let maintenance = OrderBookMaintenancePlan::new(verifying_contract);
+    let submit_tx = lifecycle.submit_tx();
+    let cancel_tx = lifecycle.cancel_tx();
+    let is_live_call = lifecycle.is_live_call();
+    let order_of_call = lifecycle.order_of_call();
+    let tick_tx = maintenance.tick_tx();
 
     println!("=== tangent-sdk example: constructed order ===");
     println!("EIP-712 domain:");
@@ -82,49 +87,35 @@ fn main() {
     println!("submitOrder selector:");
     println!(
         "  {}",
-        lifecycle
-            .submit_tx()
-            .selector_hex()
-            .expect("submitOrder has selector")
+        submit_tx.selector_hex().expect("submitOrder has selector")
     );
     println!("submitOrder calldata bytes:");
-    println!("  {}", lifecycle.submit_tx().data.len());
+    println!("  {}", submit_tx.data.len());
     println!("submitOrder tx target:");
-    println!("  {}", lifecycle.submit_tx().to);
+    println!("  {}", submit_tx.to);
     println!("cancelOrder selector:");
     println!(
         "  {}",
-        lifecycle
-            .cancel_tx()
-            .selector_hex()
-            .expect("cancelOrder has selector")
+        cancel_tx.selector_hex().expect("cancelOrder has selector")
     );
     println!("cancelOrder calldata:");
-    println!("  {}", lifecycle.cancel_tx().data_hex());
+    println!("  {}", cancel_tx.data_hex());
     println!("isLive selector:");
     println!(
         "  {}",
-        lifecycle
-            .is_live_call()
-            .selector_hex()
-            .expect("isLive has selector")
+        is_live_call.selector_hex().expect("isLive has selector")
     );
     println!("orderOf selector:");
     println!(
         "  {}",
-        lifecycle
-            .order_of_call()
-            .selector_hex()
-            .expect("orderOf has selector")
+        order_of_call.selector_hex().expect("orderOf has selector")
     );
+    println!("order lifecycle reads:");
+    println!("  {} calls", lifecycle.calls().len());
     println!("tick selector:");
-    println!(
-        "  {}",
-        maintenance
-            .tick_tx()
-            .selector_hex()
-            .expect("tick has selector")
-    );
+    println!("  {}", tick_tx.selector_hex().expect("tick has selector"));
+    println!("maintenance txs:");
+    println!("  {} tx", maintenance.transactions().len());
     println!();
     println!(
         "(sign this digest with the account owner; RPC submission lands after full-stack deployment.)"
