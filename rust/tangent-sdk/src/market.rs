@@ -44,6 +44,14 @@ pub struct MarketReadSummary {
     pub market: Option<MarketDetails>,
 }
 
+impl MarketReadSummary {
+    /// Build order validation constraints when market metadata was decoded.
+    #[must_use]
+    pub fn order_constraints(&self) -> Option<OrderConstraints> {
+        self.market.as_ref().map(MarketDetails::order_constraints)
+    }
+}
+
 impl MarketReadPlan {
     #[must_use]
     pub const fn new(market_registry: Address, market_id: u128) -> Self {
@@ -218,6 +226,7 @@ mod tests {
                 market: None,
             }
         );
+        assert_eq!(decoded.order_constraints(), None);
     }
 
     #[test]
@@ -254,6 +263,10 @@ mod tests {
                     paused: false,
                 }),
             }
+        );
+        assert_eq!(
+            decoded.order_constraints(),
+            Some(OrderConstraints::new(100, 1_000_000_000_000_000))
         );
     }
 
