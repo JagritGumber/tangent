@@ -81,8 +81,11 @@ fn main() {
     println!("  {}", signed_order.signature.to_hex());
     println!("submitOrder selector:");
     println!(
-        "  0x{}",
-        hex::encode(tangent_sdk::SignedOrder::submit_order_selector())
+        "  {}",
+        lifecycle
+            .submit_tx()
+            .selector_hex()
+            .expect("submitOrder has selector")
     );
     println!("submitOrder calldata bytes:");
     println!("  {}", lifecycle.submit_tx().data.len());
