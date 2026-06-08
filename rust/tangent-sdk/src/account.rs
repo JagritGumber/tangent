@@ -7,9 +7,10 @@ use crate::{AbiDecodeError, AccountManagerCalls, DeploymentManifest, UnsignedCal
 
 /// Permissionless Tangent account onboarding workflow.
 ///
-/// Broadcast `register_tx` from the owner address, then either decode the
-/// `registerAccount()` return value or use `account_id_of_call()` as an
-/// `eth_call` to recover the registered account id later.
+/// Submit `register_tx` from the owner address through the caller's transport,
+/// then either decode the `registerAccount()` return value or use
+/// `account_id_of_call()` as an `eth_call` to recover the registered account id
+/// later.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountOnboardingPlan {
     pub account_manager: Address,
@@ -52,6 +53,11 @@ impl AccountOnboardingPlan {
             to: self.account_manager,
             data: AccountManagerCalls::register_account_calldata(),
         }
+    }
+
+    #[must_use]
+    pub fn transactions(&self) -> [UnsignedTx; 1] {
+        [self.register_tx()]
     }
 
     #[must_use]
@@ -138,7 +144,9 @@ mod tests {
         let plan = AccountOnboardingPlan::new(addr(0x20), addr(0x30));
 
         let register = plan.register_tx();
+        let [register_from_batch] = plan.transactions();
         assert_eq!(register.to, addr(0x20));
+        assert_eq!(register_from_batch, register);
         assert_eq!(
             register.data,
             AccountManagerCalls::register_account_selector()

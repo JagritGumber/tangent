@@ -79,6 +79,7 @@ available from the checked-in manifest without opening RPC connections.
 - `MarketReadPlan` for composing market registry and mark-price read calls, plus fixed-order summary decoding before order construction.
 - `SettlementReadPlan` for composing position, margin-state, withdrawal-validation reads, and fixed-order settlement status decoding without calling restricted settlement entry points.
 - `LiquidationReadPlan` for composing liquidation status reads, fixed-order status decoding, and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
+- Fixed transaction batches for single-path workflows such as account registration, collateral deposit/withdrawal, keeper tick, and permissionless liquidation.
 - Typed read summaries for account, collateral, market, order lifecycle, settlement, and liquidation call results.
 - `UnsignedCall` helpers for inspecting call data and selectors without hand-slicing calldata bytes.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.

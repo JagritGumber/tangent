@@ -93,6 +93,11 @@ impl LiquidationReadPlan {
         }
     }
 
+    #[must_use]
+    pub fn transactions(&self) -> [UnsignedTx; 1] {
+        [self.liquidate_tx()]
+    }
+
     pub fn decode_state_return(
         &self,
         liquidation_state_return: &[u8],
@@ -166,7 +171,9 @@ mod tests {
         );
 
         let liquidate = plan.liquidate_tx();
+        let [liquidate_from_batch] = plan.transactions();
         assert_eq!(liquidate.to, addr(0x20));
+        assert_eq!(liquidate_from_batch, liquidate);
         assert_eq!(
             &liquidate.data[..4],
             &LiquidationKeeperCalls::liquidate_selector()

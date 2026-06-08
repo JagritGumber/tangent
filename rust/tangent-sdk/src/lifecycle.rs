@@ -31,6 +31,11 @@ impl OrderBookMaintenancePlan {
             data: OrderBookCalls::tick_calldata(),
         }
     }
+
+    #[must_use]
+    pub fn transactions(&self) -> [UnsignedTx; 1] {
+        [self.tick_tx()]
+    }
 }
 
 /// Submit/read/cancel calls for one signed order.
@@ -222,8 +227,10 @@ mod tests {
     fn builds_orderbook_maintenance_calls() {
         let plan = OrderBookMaintenancePlan::new(Address::repeat_byte(0x20));
         let tick = plan.tick_tx();
+        let [tick_from_batch] = plan.transactions();
 
         assert_eq!(tick.to, Address::repeat_byte(0x20));
+        assert_eq!(tick_from_batch, tick);
         assert_eq!(tick.data, OrderBookCalls::tick_selector());
     }
 
