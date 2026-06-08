@@ -21,6 +21,20 @@ pub struct LiquidationStatus {
     pub maintenance_margin: u128,
 }
 
+/// Errors that can occur while decoding batched liquidation reads.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum LiquidationDecodeError {
+    #[error(transparent)]
+    Abi(#[from] AbiDecodeError),
+    #[error(
+        "inconsistent liquidation status: isLiquidatable returned {is_liquidatable_return}, liquidationState returned {liquidation_state_return}"
+    )]
+    InconsistentLiquidationFlag {
+        is_liquidatable_return: bool,
+        liquidation_state_return: bool,
+    },
+}
+
 impl LiquidationReadPlan {
     #[must_use]
     pub const fn new(liquidation_keeper: Address, account_id: u128, market_id: u128) -> Self {
@@ -91,6 +105,28 @@ impl LiquidationReadPlan {
             equity,
             maintenance_margin,
         })
+    }
+
+    /// Decode returns from [`Self::calls`] in the same fixed order.
+    ///
+    /// Both calls expose the liquidation predicate. This validates that the
+    /// standalone `isLiquidatable` return agrees with the richer
+    /// `liquidationState` tuple so callers catch misordered or stale batches.
+    pub fn decode_returns(
+        &self,
+        returns: [&[u8]; 2],
+    ) -> Result<LiquidationStatus, LiquidationDecodeError> {
+        let is_liquidatable = LiquidationKeeperCalls::decode_is_liquidatable_return(returns[0])?;
+        let status = self.decode_state_return(returns[1])?;
+
+        if is_liquidatable != status.is_liquidatable {
+            return Err(LiquidationDecodeError::InconsistentLiquidationFlag {
+                is_liquidatable_return: is_liquidatable,
+                liquidation_state_return: status.is_liquidatable,
+            });
+        }
+
+        Ok(status)
     }
 }
 
@@ -170,6 +206,40 @@ mod tests {
                 is_liquidatable: true,
                 equity: -7,
                 maintenance_margin: 9,
+            }
+        );
+
+        assert_eq!(
+            plan.decode_returns([&yes, &data])
+                .expect("batched status decodes"),
+            LiquidationStatus {
+                is_liquidatable: true,
+                equity: -7,
+                maintenance_margin: 9,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_inconsistent_liquidation_read_returns() {
+        let plan = LiquidationReadPlan::new(addr(0x20), 7, 1);
+        let no = [0u8; 32];
+        let mut yes = [0u8; 32];
+        yes[31] = 1;
+        let equity = [0u8; 32];
+        let maintenance = [0u8; 32];
+
+        let mut state = Vec::new();
+        state.extend_from_slice(&yes);
+        state.extend_from_slice(&equity);
+        state.extend_from_slice(&maintenance);
+
+        assert_eq!(
+            plan.decode_returns([&no, &state])
+                .expect_err("mismatched flags"),
+            LiquidationDecodeError::InconsistentLiquidationFlag {
+                is_liquidatable_return: false,
+                liquidation_state_return: true,
             }
         );
     }

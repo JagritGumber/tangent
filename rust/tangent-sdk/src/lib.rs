@@ -52,7 +52,7 @@ pub use contracts::{
 };
 pub use domain::DomainSeparatorInput;
 pub use lifecycle::{OrderBookMaintenancePlan, OrderLifecyclePlan, OrderLifecycleStatus};
-pub use liquidation::{LiquidationReadPlan, LiquidationStatus};
+pub use liquidation::{LiquidationDecodeError, LiquidationReadPlan, LiquidationStatus};
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
 pub use market::{MarketReadPlan, MarketReadSummary};
 pub use order::{
