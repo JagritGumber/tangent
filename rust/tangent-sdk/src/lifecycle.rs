@@ -242,6 +242,25 @@ mod tests {
     }
 
     #[test]
+    fn decodes_missing_order_lifecycle_return() {
+        let plan = OrderLifecyclePlan::new(Address::repeat_byte(0x20), signed_order());
+        let no = [0u8; 32];
+        let missing_order = [0u8; 288];
+
+        let decoded = plan
+            .decode_returns([&no, &missing_order])
+            .expect("status decodes");
+
+        assert_eq!(
+            decoded,
+            OrderLifecycleStatus {
+                is_live: false,
+                stored_order: None,
+            }
+        );
+    }
+
+    #[test]
     fn current_arc_manifest_has_no_orderbook_plan() {
         let manifest = DeploymentManifest::from_json(include_str!(
             "../../../docs/deployments/arc-testnet.json"

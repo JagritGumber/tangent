@@ -194,4 +194,14 @@ mod tests {
         assert!(exists);
         assert_eq!(order, Order::new(7, 1, true, 9, 8, 6, 5, false));
     }
+
+    #[test]
+    fn decodes_missing_order_of_return() {
+        let data = [0u8; 288];
+
+        let (order, exists) = OrderBookCalls::decode_order_of_return(&data).expect("order decodes");
+
+        assert!(!exists);
+        assert_eq!(order, Order::new(0, 0, false, 0, 0, 0, 0, false));
+    }
 }
