@@ -268,6 +268,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rejects_truncated_market_symbol_return() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let mut data = encoded_market(false);
+        data.truncate(data.len() - 1);
+
+        assert_eq!(
+            plan.decode_market_return(&data)
+                .expect_err("truncated symbol"),
+            AbiDecodeError::InvalidLength {
+                expected: 352,
+                actual: 351,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_market_symbol_utf8() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let mut data = encoded_market(false);
+        data[320] = 0xff;
+
+        assert_eq!(
+            plan.decode_market_return(&data).expect_err("bad utf8"),
+            AbiDecodeError::InvalidStringUtf8,
+        );
+    }
+
     fn encoded_market(paused: bool) -> Vec<u8> {
         fn word_u128(value: u128) -> [u8; 32] {
             let mut out = [0u8; 32];
