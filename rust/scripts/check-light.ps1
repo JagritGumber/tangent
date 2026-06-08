@@ -1,5 +1,6 @@
 param(
-    [string]$Test = ""
+    [string]$Test = "",
+    [switch]$Clippy
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +17,10 @@ try {
 
     cargo fmt --check
     cargo metadata --no-deps --format-version 1 | Out-Null
+
+    if ($Clippy) {
+        cargo clippy -p tangent-sdk --all-targets -- -D warnings
+    }
 
     if ($Test -ne "") {
         cargo test -p tangent-sdk $Test
