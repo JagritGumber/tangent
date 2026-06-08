@@ -12,14 +12,26 @@ pub struct MarketReadPlan {
     pub market_id: u128,
 }
 
-/// Decoded single-word market reads.
-///
-/// `market(marketId)` returns richer metadata and is intentionally not decoded
-/// here yet; this struct covers the simple calls that are single ABI words.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Decoded `MarketRegistry.market(marketId)` metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketDetails {
+    pub symbol: String,
+    pub price_feed: Address,
+    pub initial_margin_bps: u16,
+    pub maint_margin_bps: u16,
+    pub max_leverage: u8,
+    pub tick_size: u128,
+    pub lot_size: u128,
+    pub max_price_age: u32,
+    pub paused: bool,
+}
+
+/// Decoded market reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarketReadSummary {
     pub total_markets: u128,
     pub mark_price: u128,
+    pub market: Option<MarketDetails>,
 }
 
 impl MarketReadPlan {
@@ -77,15 +89,46 @@ impl MarketReadPlan {
         Ok(MarketReadSummary {
             total_markets: MarketRegistryCalls::decode_total_markets_return(total_markets_return)?,
             mark_price: MarketRegistryCalls::decode_mark_price_return(mark_price_return)?,
+            market: None,
         })
     }
 
-    /// Decode the single-word summary values from [`Self::calls`].
-    ///
-    /// The middle `market(marketId)` return is intentionally ignored until the
-    /// SDK exposes a typed decoder for that richer tuple.
+    pub fn decode_market_return(
+        &self,
+        market_return: &[u8],
+    ) -> Result<MarketDetails, AbiDecodeError> {
+        let (
+            symbol,
+            price_feed,
+            initial_margin_bps,
+            maint_margin_bps,
+            max_leverage,
+            tick_size,
+            lot_size,
+            max_price_age,
+            paused,
+        ) = MarketRegistryCalls::decode_market_return(market_return)?;
+
+        Ok(MarketDetails {
+            symbol,
+            price_feed,
+            initial_margin_bps,
+            maint_margin_bps,
+            max_leverage,
+            tick_size,
+            lot_size,
+            max_price_age,
+            paused,
+        })
+    }
+
+    /// Decode returns from [`Self::calls`] in the same fixed order.
     pub fn decode_returns(&self, returns: [&[u8]; 3]) -> Result<MarketReadSummary, AbiDecodeError> {
-        self.decode_summary_returns(returns[0], returns[2])
+        Ok(MarketReadSummary {
+            total_markets: MarketRegistryCalls::decode_total_markets_return(returns[0])?,
+            market: Some(self.decode_market_return(returns[1])?),
+            mark_price: MarketRegistryCalls::decode_mark_price_return(returns[2])?,
+        })
     }
 }
 
@@ -162,6 +205,7 @@ mod tests {
             MarketReadSummary {
                 total_markets: 2,
                 mark_price: 9,
+                market: None,
             }
         );
     }
@@ -176,11 +220,11 @@ mod tests {
 
         let plan = MarketReadPlan::new(addr(0x20), 7);
         let total = word(2);
-        let market_tuple_placeholder = [];
+        let market = encoded_market(false);
         let mark = word(9);
 
         let decoded = plan
-            .decode_returns([&total, &market_tuple_placeholder, &mark])
+            .decode_returns([&total, &market, &mark])
             .expect("summary decodes");
 
         assert_eq!(
@@ -188,7 +232,65 @@ mod tests {
             MarketReadSummary {
                 total_markets: 2,
                 mark_price: 9,
+                market: Some(MarketDetails {
+                    symbol: "BTC".to_owned(),
+                    price_feed: addr(0x11),
+                    initial_margin_bps: 1_000,
+                    maint_margin_bps: 500,
+                    max_leverage: 10,
+                    tick_size: 100,
+                    lot_size: 1_000_000_000_000_000,
+                    max_price_age: 60,
+                    paused: false,
+                }),
             }
         );
+    }
+
+    #[test]
+    fn decodes_market_metadata_return() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+
+        assert_eq!(
+            plan.decode_market_return(&encoded_market(true))
+                .expect("market decodes"),
+            MarketDetails {
+                symbol: "BTC".to_owned(),
+                price_feed: addr(0x11),
+                initial_margin_bps: 1_000,
+                maint_margin_bps: 500,
+                max_leverage: 10,
+                tick_size: 100,
+                lot_size: 1_000_000_000_000_000,
+                max_price_age: 60,
+                paused: true,
+            }
+        );
+    }
+
+    fn encoded_market(paused: bool) -> Vec<u8> {
+        fn word_u128(value: u128) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            out[16..].copy_from_slice(&value.to_be_bytes());
+            out
+        }
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&word_u128(288));
+        let mut price_feed = [0u8; 32];
+        price_feed[12..].copy_from_slice(addr(0x11).as_slice());
+        data.extend_from_slice(&price_feed);
+        data.extend_from_slice(&word_u128(1_000));
+        data.extend_from_slice(&word_u128(500));
+        data.extend_from_slice(&word_u128(10));
+        data.extend_from_slice(&word_u128(100));
+        data.extend_from_slice(&word_u128(1_000_000_000_000_000));
+        data.extend_from_slice(&word_u128(60));
+        data.extend_from_slice(&word_u128(if paused { 1 } else { 0 }));
+        data.extend_from_slice(&word_u128(3));
+        let mut symbol = [0u8; 32];
+        symbol[..3].copy_from_slice(b"BTC");
+        data.extend_from_slice(&symbol);
+        data
     }
 }

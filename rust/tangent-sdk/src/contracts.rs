@@ -438,6 +438,80 @@ impl MarketRegistryCalls {
     pub fn decode_total_markets_return(data: &[u8]) -> Result<u128, AbiDecodeError> {
         crate::abi::decode_u128(data)
     }
+
+    #[allow(clippy::type_complexity)]
+    pub fn decode_market_return(
+        data: &[u8],
+    ) -> Result<(String, Address, u16, u16, u8, u128, u128, u32, bool), AbiDecodeError> {
+        if data.len() < 288 {
+            return Err(AbiDecodeError::InvalidLength {
+                expected: 288,
+                actual: data.len(),
+            });
+        }
+
+        let symbol_offset = usize::try_from(crate::abi::decode_u128(&data[0..32])?)
+            .map_err(|_| AbiDecodeError::UintOverflow)?;
+        let symbol_len_end = symbol_offset
+            .checked_add(32)
+            .ok_or(AbiDecodeError::UintOverflow)?;
+        if data.len() < symbol_len_end {
+            return Err(AbiDecodeError::InvalidLength {
+                expected: symbol_len_end,
+                actual: data.len(),
+            });
+        }
+
+        let symbol_len = usize::try_from(crate::abi::decode_u128(
+            &data[symbol_offset..symbol_len_end],
+        )?)
+        .map_err(|_| AbiDecodeError::UintOverflow)?;
+        let symbol_end = symbol_len_end
+            .checked_add(symbol_len)
+            .ok_or(AbiDecodeError::UintOverflow)?;
+        let padded_symbol_end = symbol_len_end
+            .checked_add(symbol_len.div_ceil(32) * 32)
+            .ok_or(AbiDecodeError::UintOverflow)?;
+        if data.len() < padded_symbol_end {
+            return Err(AbiDecodeError::InvalidLength {
+                expected: padded_symbol_end,
+                actual: data.len(),
+            });
+        }
+
+        let symbol = std::str::from_utf8(&data[symbol_len_end..symbol_end])
+            .map_err(|_| AbiDecodeError::InvalidStringUtf8)?
+            .to_owned();
+
+        let initial_margin_bps = crate::abi::decode_u128(&data[64..96])?;
+        if initial_margin_bps > u16::MAX as u128 {
+            return Err(AbiDecodeError::UintOverflow);
+        }
+        let maint_margin_bps = crate::abi::decode_u128(&data[96..128])?;
+        if maint_margin_bps > u16::MAX as u128 {
+            return Err(AbiDecodeError::UintOverflow);
+        }
+        let max_leverage = crate::abi::decode_u128(&data[128..160])?;
+        if max_leverage > u8::MAX as u128 {
+            return Err(AbiDecodeError::UintOverflow);
+        }
+        let max_price_age = crate::abi::decode_u128(&data[224..256])?;
+        if max_price_age > u32::MAX as u128 {
+            return Err(AbiDecodeError::UintOverflow);
+        }
+
+        Ok((
+            symbol,
+            crate::abi::decode_address(&data[32..64])?,
+            initial_margin_bps as u16,
+            maint_margin_bps as u16,
+            max_leverage as u8,
+            crate::abi::decode_u128(&data[160..192])?,
+            crate::abi::decode_u128(&data[192..224])?,
+            max_price_age as u32,
+            crate::abi::decode_bool(&data[256..288])?,
+        ))
+    }
 }
 
 #[cfg(test)]

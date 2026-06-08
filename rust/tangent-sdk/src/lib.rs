@@ -54,7 +54,7 @@ pub use domain::DomainSeparatorInput;
 pub use lifecycle::{OrderBookMaintenancePlan, OrderLifecyclePlan, OrderLifecycleStatus};
 pub use liquidation::{LiquidationDecodeError, LiquidationReadPlan, LiquidationStatus};
 pub use manifest::{ContractAddresses, DeploymentManifest, ManifestError, NetworkConstants};
-pub use market::{MarketReadPlan, MarketReadSummary};
+pub use market::{MarketDetails, MarketReadPlan, MarketReadSummary};
 pub use order::{
     Order, OrderBuilder, OrderConstraints, OrderError, OrderParams, Side, BASE_SCALE, PRICE_SCALE,
 };

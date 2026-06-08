@@ -15,6 +15,8 @@ pub enum AbiDecodeError {
     InvalidBool(u8),
     #[error("invalid ABI address word: non-zero high bytes")]
     InvalidAddressPadding,
+    #[error("invalid ABI string: not valid UTF-8")]
+    InvalidStringUtf8,
 }
 
 fn single_word(data: &[u8]) -> Result<&[u8], AbiDecodeError> {

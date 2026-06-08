@@ -76,7 +76,7 @@ available from the checked-in manifest without opening RPC connections.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
 - `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration, register-return decoding, and account read calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
-- `MarketReadPlan` for composing market registry and mark-price read calls, plus fixed-order summary decoding before order construction.
+- `MarketReadPlan` for composing market registry and mark-price read calls, plus fixed-order market metadata and summary decoding before order construction.
 - `SettlementReadPlan` for composing position, margin-state, withdrawal-validation reads, and fixed-order settlement status decoding without calling restricted settlement entry points.
 - `LiquidationReadPlan` for composing liquidation status reads, fixed-order status decoding, and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
 - Fixed transaction batches for single-path workflows such as account registration, collateral deposit/withdrawal, keeper tick, and permissionless liquidation.
