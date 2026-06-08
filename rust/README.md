@@ -37,6 +37,7 @@ Or run the low-resource helper from the repository root:
 ```powershell
 .\rust\scripts\check-light.ps1
 .\rust\scripts\check-light.ps1 -Test lifecycle::tests::decodes_order_lifecycle_status
+.\rust\scripts\check-light.ps1 -Test tx::tests::exposes_selector_helpers -Exact
 .\rust\scripts\check-light.ps1 -Clippy
 ```
 
@@ -53,6 +54,8 @@ cargo run -p tangent-sdk --example load_manifest
 The helper always serializes Cargo work through the workspace's one-job config.
 Its default path is intentionally cheap (`fmt` + `metadata`); `-Clippy` still
 compiles all SDK targets, so use it when the machine has enough headroom.
+Use `-Exact` with a full test path when you want to avoid Cargo's default
+substring test filtering.
 Avoid running test, clippy, and examples in parallel on memory-constrained
 Windows machines. The full workspace commands are still valid, but unnecessary
 while `tangent-sdk` is the only active crate.

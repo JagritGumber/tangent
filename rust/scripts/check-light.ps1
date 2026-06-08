@@ -1,5 +1,6 @@
 param(
     [string]$Test = "",
+    [switch]$Exact,
     [switch]$Clippy
 )
 
@@ -23,7 +24,12 @@ try {
     }
 
     if ($Test -ne "") {
-        cargo test -p tangent-sdk $Test
+        if ($Exact) {
+            cargo test -p tangent-sdk $Test -- --exact
+        }
+        else {
+            cargo test -p tangent-sdk $Test
+        }
     }
 }
 finally {
