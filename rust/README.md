@@ -38,6 +38,7 @@ Or run the low-resource helper from the repository root:
 .\rust\scripts\check-light.ps1
 .\rust\scripts\check-light.ps1 -Test lifecycle::tests::decodes_order_lifecycle_status
 .\rust\scripts\check-light.ps1 -Test tx::tests::exposes_selector_helpers -Exact
+.\rust\scripts\check-light.ps1 -Example load_manifest
 .\rust\scripts\check-light.ps1 -Clippy
 ```
 
@@ -56,6 +57,7 @@ Its default path is intentionally cheap (`fmt` + `metadata`); `-Clippy` still
 compiles all SDK targets, so use it when the machine has enough headroom.
 Use `-Exact` with a full test path when you want to avoid Cargo's default
 substring test filtering.
+Use `-Example` to run one example through the same serialized Cargo settings.
 Avoid running test, clippy, and examples in parallel on memory-constrained
 Windows machines. The full workspace commands are still valid, but unnecessary
 while `tangent-sdk` is the only active crate.

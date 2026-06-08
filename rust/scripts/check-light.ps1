@@ -1,5 +1,6 @@
 param(
     [string]$Test = "",
+    [string]$Example = "",
     [switch]$Exact,
     [switch]$Clippy
 )
@@ -30,6 +31,10 @@ try {
         else {
             cargo test -p tangent-sdk $Test
         }
+    }
+
+    if ($Example -ne "") {
+        cargo run -p tangent-sdk --example $Example
     }
 }
 finally {
