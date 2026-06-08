@@ -3,8 +3,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $workspace = Resolve-Path (Join-Path $PSScriptRoot "..")
+$previousBuildJobs = $env:CARGO_BUILD_JOBS
+$previousIncremental = $env:CARGO_INCREMENTAL
+
 Push-Location $workspace
 try {
     $env:CARGO_BUILD_JOBS = "1"
@@ -19,4 +23,18 @@ try {
 }
 finally {
     Pop-Location
+
+    if ($null -eq $previousBuildJobs) {
+        Remove-Item Env:\CARGO_BUILD_JOBS -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:CARGO_BUILD_JOBS = $previousBuildJobs
+    }
+
+    if ($null -eq $previousIncremental) {
+        Remove-Item Env:\CARGO_INCREMENTAL -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:CARGO_INCREMENTAL = $previousIncremental
+    }
 }

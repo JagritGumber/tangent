@@ -74,6 +74,15 @@ forge build
 forge test
 ```
 
+Rust SDK checks are intentionally low-resource by default on Windows:
+
+```powershell
+.\rust\scripts\check-light.ps1
+.\rust\scripts\check-light.ps1 -Test lifecycle::tests::decodes_order_lifecycle_status
+```
+
+See [`rust/README.md`](./rust/README.md) for broader Rust verification commands.
+
 ## Live on Arc Testnet
 
 Tangent v0.1 is **deployed and source-verified** on Arc Testnet (chainId `11111`) as of 2026-05-25. Click any address below and select the "Code" tab on Arcscan to read the verified Solidity:
