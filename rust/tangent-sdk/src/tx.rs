@@ -35,6 +35,11 @@ impl UnsignedCall {
     pub fn data_hex(&self) -> String {
         format!("0x{}", hex::encode(&self.data))
     }
+
+    #[must_use]
+    pub fn data_len(&self) -> usize {
+        self.data.len()
+    }
 }
 
 /// Backwards-compatible alias for transaction-oriented workflow callers.
@@ -56,6 +61,7 @@ mod tests {
         assert_eq!(call.selector(), Some([0x12, 0x34, 0x56, 0x78]));
         assert_eq!(call.selector_hex(), Some("0x12345678".to_owned()));
         assert_eq!(call.data_hex(), "0x12345678ff");
+        assert_eq!(call.data_len(), 5);
     }
 
     #[test]

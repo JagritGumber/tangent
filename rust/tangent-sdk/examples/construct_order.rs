@@ -90,7 +90,7 @@ fn main() {
         submit_tx.selector_hex().expect("submitOrder has selector")
     );
     println!("submitOrder calldata bytes:");
-    println!("  {}", submit_tx.data.len());
+    println!("  {}", submit_tx.data_len());
     println!("submitOrder tx target:");
     println!("  {}", submit_tx.to);
     println!("cancelOrder selector:");
