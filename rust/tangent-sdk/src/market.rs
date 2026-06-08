@@ -3,7 +3,9 @@
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{AbiDecodeError, DeploymentManifest, MarketRegistryCalls, UnsignedCall};
+use crate::{
+    AbiDecodeError, DeploymentManifest, MarketRegistryCalls, OrderConstraints, UnsignedCall,
+};
 
 /// Read-side Tangent market discovery calls.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +26,14 @@ pub struct MarketDetails {
     pub lot_size: u128,
     pub max_price_age: u32,
     pub paused: bool,
+}
+
+impl MarketDetails {
+    /// Build order validation constraints from decoded market metadata.
+    #[must_use]
+    pub const fn order_constraints(&self) -> OrderConstraints {
+        OrderConstraints::new(self.tick_size, self.lot_size)
+    }
 }
 
 /// Decoded market reads.
@@ -250,10 +260,12 @@ mod tests {
     #[test]
     fn decodes_market_metadata_return() {
         let plan = MarketReadPlan::new(addr(0x20), 7);
+        let details = plan
+            .decode_market_return(&encoded_market(true))
+            .expect("market decodes");
 
         assert_eq!(
-            plan.decode_market_return(&encoded_market(true))
-                .expect("market decodes"),
+            details,
             MarketDetails {
                 symbol: "BTC".to_owned(),
                 price_feed: addr(0x11),
@@ -265,6 +277,10 @@ mod tests {
                 max_price_age: 60,
                 paused: true,
             }
+        );
+        assert_eq!(
+            details.order_constraints(),
+            OrderConstraints::new(100, 1_000_000_000_000_000)
         );
     }
 
