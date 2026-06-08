@@ -64,6 +64,7 @@ while `tangent-sdk` is the only active crate.
 - Canonical `Order`, `OrderParams`, `OrderConstraints`, and EIP-712 domain/digest helpers matching `OrderTypes.sol`.
 - `PreparedOrder`, `OrderSignature`, and `SignedOrder` helpers for attaching externally produced signatures and encoding `OrderBook.submitOrder`.
 - `OrderLifecyclePlan` for composing submit, cancel, `isLive`, and `orderOf` calls around one signed order.
+- Grouped order lifecycle read calls for transport layers that batch `isLive` and `orderOf` lookups.
 - `OrderBookMaintenancePlan` for composing the permissionless `tick()` transaction used by keepers.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
 - `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration and account read calls.

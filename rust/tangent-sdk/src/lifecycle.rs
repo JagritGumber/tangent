@@ -103,6 +103,11 @@ impl OrderLifecyclePlan {
         }
     }
 
+    #[must_use]
+    pub fn calls(&self) -> [UnsignedCall; 2] {
+        [self.is_live_call(), self.order_of_call()]
+    }
+
     pub fn decode_is_live_return(
         &self,
         is_live_return: &[u8],
@@ -163,6 +168,8 @@ mod tests {
         assert_eq!(order_of.to, Address::repeat_byte(0x20));
         assert_eq!(&order_of.data[..4], &OrderBookCalls::order_of_selector());
         assert_eq!(&order_of.data[4..36], order_hash.as_slice());
+
+        assert_eq!(plan.calls(), [is_live, order_of]);
     }
 
     #[test]
