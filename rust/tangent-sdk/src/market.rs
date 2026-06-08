@@ -296,6 +296,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rejects_market_bps_and_age_overflows() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+
+        for (name, word_index, value) in [
+            ("initial margin overflow", 2usize, u16::MAX as u128 + 1),
+            ("maintenance margin overflow", 3usize, u16::MAX as u128 + 1),
+            ("max leverage overflow", 4usize, u8::MAX as u128 + 1),
+            ("max price age overflow", 7usize, u32::MAX as u128 + 1),
+        ] {
+            let mut data = encoded_market(false);
+            data[word_index * 32 + 16..word_index * 32 + 32].copy_from_slice(&value.to_be_bytes());
+
+            assert_eq!(
+                plan.decode_market_return(&data).expect_err(name),
+                AbiDecodeError::UintOverflow,
+            );
+        }
+    }
+
     fn encoded_market(paused: bool) -> Vec<u8> {
         fn word_u128(value: u128) -> [u8; 32] {
             let mut out = [0u8; 32];
