@@ -70,9 +70,10 @@ while `tangent-sdk` is the only active crate.
 - `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration, register-return decoding, and account read calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
 - `MarketReadPlan` for composing market registry and mark-price read calls, plus fixed-order summary decoding before order construction.
-- Typed read summaries for single-word account, collateral, market, and order lifecycle call results.
+- `LiquidationReadPlan` for composing liquidation status reads and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
+- Typed read summaries for account, collateral, market, order lifecycle, and liquidation call results.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
-- Minimal single-word ABI return decoders for balances, ids, addresses, and booleans.
+- Minimal ABI return decoders for balances, ids, addresses, booleans, and bounded signed liquidation equity.
 
 It does not yet open an RPC connection, sign through Circle Dev Wallets, estimate gas, or broadcast transactions. Those higher-level client pieces still land with the keeper/client work.
 

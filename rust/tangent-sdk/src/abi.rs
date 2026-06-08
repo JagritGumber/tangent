@@ -9,6 +9,8 @@ pub enum AbiDecodeError {
     InvalidLength { expected: usize, actual: usize },
     #[error("ABI uint value exceeds supported SDK width")]
     UintOverflow,
+    #[error("ABI int value exceeds supported SDK width")]
+    IntOverflow,
     #[error("invalid ABI bool value: {0}")]
     InvalidBool(u8),
     #[error("invalid ABI address word: non-zero high bytes")]
@@ -49,6 +51,19 @@ pub(crate) fn decode_bool(data: &[u8]) -> Result<bool, AbiDecodeError> {
     }
 }
 
+pub(crate) fn decode_i128(data: &[u8]) -> Result<i128, AbiDecodeError> {
+    let word = single_word(data)?;
+    let mut low = [0u8; 16];
+    low.copy_from_slice(&word[16..]);
+
+    let sign_padding = if low[0] & 0x80 == 0 { 0x00 } else { 0xff };
+    if word[..16].iter().any(|byte| *byte != sign_padding) {
+        return Err(AbiDecodeError::IntOverflow);
+    }
+
+    Ok(i128::from_be_bytes(low))
+}
+
 pub(crate) fn decode_address(data: &[u8]) -> Result<Address, AbiDecodeError> {
     let word = single_word(data)?;
     if word[..12].iter().any(|byte| *byte != 0) {
@@ -70,6 +85,7 @@ mod tests {
     #[test]
     fn decodes_u128_bool_and_address() {
         assert_eq!(decode_u128(&word_with_last(7)).expect("u128"), 7);
+        assert_eq!(decode_i128(&word_with_last(7)).expect("i128"), 7);
         assert!(decode_bool(&word_with_last(1)).expect("bool"));
 
         let mut address_word = [0u8; 32];
@@ -78,6 +94,15 @@ mod tests {
             decode_address(&address_word).expect("address"),
             Address::repeat_byte(0x11)
         );
+    }
+
+    #[test]
+    fn decodes_negative_i128() {
+        let minus_seven = (-7i128).to_be_bytes();
+        let mut word = [0xffu8; 32];
+        word[16..].copy_from_slice(&minus_seven);
+
+        assert_eq!(decode_i128(&word).expect("i128"), -7);
     }
 
     #[test]
@@ -94,6 +119,10 @@ mod tests {
         assert_eq!(
             decode_u128(&overflow).expect_err("overflow"),
             AbiDecodeError::UintOverflow
+        );
+        assert_eq!(
+            decode_i128(&overflow).expect_err("int overflow"),
+            AbiDecodeError::IntOverflow
         );
 
         assert_eq!(

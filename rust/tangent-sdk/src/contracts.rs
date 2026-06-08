@@ -24,11 +24,79 @@ fn u128_call(signature: &str, value: u128) -> Vec<u8> {
     out
 }
 
+fn two_u128_call(signature: &str, first: u128, second: u128) -> Vec<u8> {
+    let mut out = Vec::with_capacity(68);
+    out.extend_from_slice(&selector(signature));
+    crate::eip712::encode_u128(&mut out, first);
+    crate::eip712::encode_u128(&mut out, second);
+    out
+}
+
 fn address_call(signature: &str, value: Address) -> Vec<u8> {
     let mut out = Vec::with_capacity(36);
     out.extend_from_slice(&selector(signature));
     crate::eip712::encode_address(&mut out, value);
     out
+}
+
+/// ABI helpers for `LiquidationKeeper` calls.
+pub struct LiquidationKeeperCalls;
+
+impl LiquidationKeeperCalls {
+    pub const LIQUIDATE_SIGNATURE: &'static str = "liquidate(uint256,uint256)";
+    pub const IS_LIQUIDATABLE_SIGNATURE: &'static str = "isLiquidatable(uint256,uint256)";
+    pub const LIQUIDATION_STATE_SIGNATURE: &'static str = "liquidationState(uint256,uint256)";
+
+    #[must_use]
+    pub fn liquidate_selector() -> [u8; 4] {
+        selector(Self::LIQUIDATE_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn liquidate_calldata(account_id: u128, market_id: u128) -> Vec<u8> {
+        two_u128_call(Self::LIQUIDATE_SIGNATURE, account_id, market_id)
+    }
+
+    #[must_use]
+    pub fn is_liquidatable_selector() -> [u8; 4] {
+        selector(Self::IS_LIQUIDATABLE_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn is_liquidatable_calldata(account_id: u128, market_id: u128) -> Vec<u8> {
+        two_u128_call(Self::IS_LIQUIDATABLE_SIGNATURE, account_id, market_id)
+    }
+
+    #[must_use]
+    pub fn liquidation_state_selector() -> [u8; 4] {
+        selector(Self::LIQUIDATION_STATE_SIGNATURE)
+    }
+
+    #[must_use]
+    pub fn liquidation_state_calldata(account_id: u128, market_id: u128) -> Vec<u8> {
+        two_u128_call(Self::LIQUIDATION_STATE_SIGNATURE, account_id, market_id)
+    }
+
+    pub fn decode_is_liquidatable_return(data: &[u8]) -> Result<bool, AbiDecodeError> {
+        crate::abi::decode_bool(data)
+    }
+
+    pub fn decode_liquidation_state_return(
+        data: &[u8],
+    ) -> Result<(bool, i128, u128), AbiDecodeError> {
+        if data.len() != 96 {
+            return Err(AbiDecodeError::InvalidLength {
+                expected: 96,
+                actual: data.len(),
+            });
+        }
+
+        Ok((
+            crate::abi::decode_bool(&data[0..32])?,
+            crate::abi::decode_i128(&data[32..64])?,
+            crate::abi::decode_u128(&data[64..96])?,
+        ))
+    }
 }
 
 /// ABI helpers for standard ERC-20 calls used by the USDC collateral flow.
@@ -400,6 +468,25 @@ mod tests {
     }
 
     #[test]
+    fn liquidation_calls_encode_two_uint_words() {
+        let liquidate = LiquidationKeeperCalls::liquidate_calldata(7, 1);
+        assert_eq!(liquidate.len(), 68);
+        assert_eq!(
+            &liquidate[..4],
+            &LiquidationKeeperCalls::liquidate_selector()
+        );
+        assert_eq!(hex::encode(&liquidate[4..36]), format!("{:064x}", 7));
+        assert_eq!(hex::encode(&liquidate[36..68]), format!("{:064x}", 1));
+
+        let state = LiquidationKeeperCalls::liquidation_state_calldata(7, 1);
+        assert_eq!(state.len(), 68);
+        assert_eq!(
+            &state[..4],
+            &LiquidationKeeperCalls::liquidation_state_selector()
+        );
+    }
+
+    #[test]
     fn address_and_multi_arg_calls_encode_expected_shape() {
         let account_id = AccountManagerCalls::account_id_of_calldata(addr());
         assert_eq!(account_id.len(), 36);
@@ -461,6 +548,28 @@ mod tests {
         assert_eq!(
             ERC20Calls::decode_allowance_return(&seven).expect("allowance"),
             7
+        );
+    }
+
+    #[test]
+    fn decodes_liquidation_state_return() {
+        let mut yes = [0u8; 32];
+        yes[31] = 1;
+
+        let mut equity = [0xffu8; 32];
+        equity[16..].copy_from_slice(&(-7i128).to_be_bytes());
+
+        let mut maintenance = [0u8; 32];
+        maintenance[31] = 9;
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&yes);
+        data.extend_from_slice(&equity);
+        data.extend_from_slice(&maintenance);
+
+        assert_eq!(
+            LiquidationKeeperCalls::decode_liquidation_state_return(&data).expect("state decodes"),
+            (true, -7, 9)
         );
     }
 }
