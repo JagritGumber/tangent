@@ -89,15 +89,39 @@ fn main() {
     println!("submitOrder tx target:");
     println!("  {}", lifecycle.submit_tx().to);
     println!("cancelOrder selector:");
-    println!("  0x{}", hex::encode(&lifecycle.cancel_tx().data[..4]));
+    println!(
+        "  {}",
+        lifecycle
+            .cancel_tx()
+            .selector_hex()
+            .expect("cancelOrder has selector")
+    );
     println!("cancelOrder calldata:");
     println!("  {}", lifecycle.cancel_tx().data_hex());
     println!("isLive selector:");
-    println!("  0x{}", hex::encode(&lifecycle.is_live_call().data[..4]));
+    println!(
+        "  {}",
+        lifecycle
+            .is_live_call()
+            .selector_hex()
+            .expect("isLive has selector")
+    );
     println!("orderOf selector:");
-    println!("  0x{}", hex::encode(&lifecycle.order_of_call().data[..4]));
+    println!(
+        "  {}",
+        lifecycle
+            .order_of_call()
+            .selector_hex()
+            .expect("orderOf has selector")
+    );
     println!("tick selector:");
-    println!("  0x{}", hex::encode(&maintenance.tick_tx().data[..4]));
+    println!(
+        "  {}",
+        maintenance
+            .tick_tx()
+            .selector_hex()
+            .expect("tick has selector")
+    );
     println!();
     println!(
         "(sign this digest with the account owner; RPC submission lands after full-stack deployment.)"

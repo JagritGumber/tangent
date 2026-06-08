@@ -75,6 +75,7 @@ available from the checked-in manifest without opening RPC connections.
 - `SettlementReadPlan` for composing position, margin-state, withdrawal-validation reads, and fixed-order settlement status decoding without calling restricted settlement entry points.
 - `LiquidationReadPlan` for composing liquidation status reads, fixed-order status decoding, and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
 - Typed read summaries for account, collateral, market, order lifecycle, settlement, and liquidation call results.
+- `UnsignedCall` helpers for inspecting call data and selectors without hand-slicing calldata bytes.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
 - Minimal ABI return decoders for balances, ids, addresses, booleans, no-return guard calls, and bounded signed settlement/liquidation values.
 
