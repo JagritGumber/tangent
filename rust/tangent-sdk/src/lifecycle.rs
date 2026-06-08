@@ -125,6 +125,10 @@ impl OrderLifecyclePlan {
         })
     }
 
+    /// Decode the `orderOf(orderHash)` return for this plan's order.
+    ///
+    /// Returns `Some(order)` when the book reports `exists = true`; returns
+    /// `None` for the all-zero missing-order shape.
     pub fn decode_order_of_return(
         &self,
         order_of_return: &[u8],
@@ -133,7 +137,8 @@ impl OrderLifecyclePlan {
         Ok(exists.then_some(order))
     }
 
-    /// Decode returns from [`Self::calls`] in the same fixed order.
+    /// Decode returns from [`Self::calls`] in the same fixed order:
+    /// `[isLive(orderHash), orderOf(orderHash)]`.
     pub fn decode_returns(
         &self,
         returns: [&[u8]; 2],

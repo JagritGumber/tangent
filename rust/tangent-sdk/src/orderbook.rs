@@ -91,6 +91,11 @@ impl OrderBookCalls {
         crate::abi::decode_bool(data)
     }
 
+    /// Decode `OrderBook.orderOf(orderHash)` return data.
+    ///
+    /// The Solidity return shape is the eight fixed `Order` fields followed by
+    /// the `exists` flag. This decoder only parses those ABI words; it does
+    /// not perform the `eth_call`.
     pub fn decode_order_of_return(data: &[u8]) -> Result<(Order, bool), AbiDecodeError> {
         if data.len() != 288 {
             return Err(AbiDecodeError::InvalidLength {
