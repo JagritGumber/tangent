@@ -204,4 +204,26 @@ mod tests {
         assert!(!exists);
         assert_eq!(order, Order::new(0, 0, false, 0, 0, 0, 0, false));
     }
+
+    #[test]
+    fn rejects_bad_order_of_return_shape() {
+        assert_eq!(
+            OrderBookCalls::decode_order_of_return(&[0u8; 287]).expect_err("bad length"),
+            AbiDecodeError::InvalidLength {
+                expected: 288,
+                actual: 287,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_expiry_overflow_in_order_of_return() {
+        let mut data = [0u8; 288];
+        data[208..224].copy_from_slice(&u128::from(u64::MAX).saturating_add(1).to_be_bytes());
+
+        assert_eq!(
+            OrderBookCalls::decode_order_of_return(&data).expect_err("expiry overflow"),
+            AbiDecodeError::UintOverflow,
+        );
+    }
 }
