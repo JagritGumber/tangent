@@ -116,6 +116,17 @@ impl OrderLifecyclePlan {
             is_live: OrderBookCalls::decode_is_live_return(is_live_return)?,
         })
     }
+
+    /// Decode the single-word lifecycle status from [`Self::calls`].
+    ///
+    /// The second `orderOf(orderHash)` return is intentionally ignored until
+    /// the SDK exposes a typed decoder for that richer tuple.
+    pub fn decode_returns(
+        &self,
+        returns: [&[u8]; 2],
+    ) -> Result<OrderLifecycleStatus, AbiDecodeError> {
+        self.decode_is_live_return(returns[0])
+    }
 }
 
 #[cfg(test)]
@@ -179,6 +190,20 @@ mod tests {
         yes[31] = 1;
 
         let decoded = plan.decode_is_live_return(&yes).expect("status decodes");
+
+        assert_eq!(decoded, OrderLifecycleStatus { is_live: true });
+    }
+
+    #[test]
+    fn decodes_order_lifecycle_returns_in_call_order() {
+        let plan = OrderLifecyclePlan::new(Address::repeat_byte(0x20), signed_order());
+        let mut yes = [0u8; 32];
+        yes[31] = 1;
+        let order_tuple_placeholder = [];
+
+        let decoded = plan
+            .decode_returns([&yes, &order_tuple_placeholder])
+            .expect("status decodes");
 
         assert_eq!(decoded, OrderLifecycleStatus { is_live: true });
     }
