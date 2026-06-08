@@ -72,7 +72,7 @@ available from the checked-in manifest without opening RPC connections.
 - `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration, register-return decoding, and account read calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
 - `MarketReadPlan` for composing market registry and mark-price read calls, plus fixed-order summary decoding before order construction.
-- `SettlementReadPlan` for composing position, margin-state, and withdrawal-validation read calls without calling restricted settlement entry points.
+- `SettlementReadPlan` for composing position, margin-state, withdrawal-validation reads, and fixed-order settlement status decoding without calling restricted settlement entry points.
 - `LiquidationReadPlan` for composing liquidation status reads and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
 - Typed read summaries for account, collateral, market, order lifecycle, settlement, and liquidation call results.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.

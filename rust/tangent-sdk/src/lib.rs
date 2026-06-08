@@ -59,6 +59,6 @@ pub use order::{
     Order, OrderBuilder, OrderConstraints, OrderError, OrderParams, Side, BASE_SCALE, PRICE_SCALE,
 };
 pub use orderbook::OrderBookCalls;
-pub use settlement::{MarginStatus, PositionStatus, SettlementReadPlan};
+pub use settlement::{MarginStatus, PositionStatus, SettlementReadPlan, SettlementStatus};
 pub use signing::{OrderSignature, PreparedOrder, SignatureError, SignedOrder};
 pub use tx::{UnsignedCall, UnsignedTx};

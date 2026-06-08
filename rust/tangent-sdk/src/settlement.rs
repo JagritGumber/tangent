@@ -28,6 +28,13 @@ pub struct MarginStatus {
     pub maintenance_margin: u128,
 }
 
+/// Decoded settlement status for one account/market pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettlementStatus {
+    pub position: PositionStatus,
+    pub margin: MarginStatus,
+}
+
 impl SettlementReadPlan {
     #[must_use]
     pub const fn new(settlement_engine: Address, account_id: u128, market_id: u128) -> Self {
@@ -103,6 +110,14 @@ impl SettlementReadPlan {
         Ok(MarginStatus {
             equity,
             maintenance_margin,
+        })
+    }
+
+    /// Decode returns from [`Self::calls`] in the same fixed order.
+    pub fn decode_returns(&self, returns: [&[u8]; 2]) -> Result<SettlementStatus, AbiDecodeError> {
+        Ok(SettlementStatus {
+            position: self.decode_position_return(returns[0])?,
+            margin: self.decode_margin_return(returns[1])?,
         })
     }
 }
@@ -192,6 +207,22 @@ mod tests {
             MarginStatus {
                 equity: -7,
                 maintenance_margin: 9,
+            }
+        );
+
+        assert_eq!(
+            plan.decode_returns([&position, &margin])
+                .expect("status decodes"),
+            SettlementStatus {
+                position: PositionStatus {
+                    size: -7,
+                    entry_price: 8,
+                    locked_margin: 9,
+                },
+                margin: MarginStatus {
+                    equity: -7,
+                    maintenance_margin: 9,
+                },
             }
         );
     }
