@@ -67,7 +67,7 @@ while `tangent-sdk` is the only active crate.
 - Grouped order lifecycle read calls for transport layers that batch `isLive` and `orderOf` lookups.
 - `OrderBookMaintenancePlan` for composing the permissionless `tick()` transaction used by keepers.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
-- `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration and account read calls.
+- `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration, register-return decoding, and account read calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
 - `MarketReadPlan` for composing market registry and mark-price read calls before order construction.
 - Typed read summaries for single-word account, collateral, market, and order lifecycle call results.

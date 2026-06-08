@@ -61,6 +61,10 @@ impl AccountOnboardingPlan {
             data: AccountManagerCalls::account_id_of_calldata(self.owner),
         }
     }
+
+    pub fn decode_register_return(&self, register_return: &[u8]) -> Result<u128, AbiDecodeError> {
+        AccountManagerCalls::decode_register_account_return(register_return)
+    }
 }
 
 impl AccountStatusPlan {
@@ -147,6 +151,19 @@ mod tests {
             &AccountManagerCalls::account_id_of_selector()
         );
         assert_eq!(&lookup.data[16..36], addr(0x30).as_slice());
+    }
+
+    #[test]
+    fn decodes_register_account_return() {
+        let plan = AccountOnboardingPlan::new(addr(0x20), addr(0x30));
+        let mut account_id = [0u8; 32];
+        account_id[31] = 7;
+
+        assert_eq!(
+            plan.decode_register_return(&account_id)
+                .expect("account id decodes"),
+            7
+        );
     }
 
     #[test]
