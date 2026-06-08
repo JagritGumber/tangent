@@ -7,6 +7,8 @@ use alloy_primitives::Address;
 pub enum AbiDecodeError {
     #[error("invalid ABI return length: expected {expected} bytes, got {actual}")]
     InvalidLength { expected: usize, actual: usize },
+    #[error("invalid ABI dynamic offset: {0}")]
+    InvalidOffset(usize),
     #[error("ABI uint value exceeds supported SDK width")]
     UintOverflow,
     #[error("ABI int value exceeds supported SDK width")]

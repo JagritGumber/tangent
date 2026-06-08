@@ -326,6 +326,34 @@ mod tests {
     }
 
     #[test]
+    fn rejects_market_symbol_offsets_inside_tuple_head() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let mut data = encoded_market(false);
+        data[0..32].fill(0);
+        data[31] = 32;
+
+        assert_eq!(
+            plan.decode_market_return(&data)
+                .expect_err("symbol offset inside fixed tuple head"),
+            AbiDecodeError::InvalidOffset(32),
+        );
+    }
+
+    #[test]
+    fn rejects_unaligned_market_symbol_offsets() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let mut data = encoded_market(false);
+        data[30] = 1;
+        data[31] = 33;
+
+        assert_eq!(
+            plan.decode_market_return(&data)
+                .expect_err("unaligned symbol offset"),
+            AbiDecodeError::InvalidOffset(289),
+        );
+    }
+
+    #[test]
     fn rejects_market_bps_and_age_overflows() {
         let plan = MarketReadPlan::new(addr(0x20), 7);
 

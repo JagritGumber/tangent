@@ -452,6 +452,10 @@ impl MarketRegistryCalls {
 
         let symbol_offset = usize::try_from(crate::abi::decode_u128(&data[0..32])?)
             .map_err(|_| AbiDecodeError::UintOverflow)?;
+        if symbol_offset < 288 || symbol_offset % 32 != 0 {
+            return Err(AbiDecodeError::InvalidOffset(symbol_offset));
+        }
+
         let symbol_len_end = symbol_offset
             .checked_add(32)
             .ok_or(AbiDecodeError::UintOverflow)?;
@@ -469,8 +473,13 @@ impl MarketRegistryCalls {
         let symbol_end = symbol_len_end
             .checked_add(symbol_len)
             .ok_or(AbiDecodeError::UintOverflow)?;
+        let padded_symbol_len = symbol_len
+            .checked_add(31)
+            .ok_or(AbiDecodeError::UintOverflow)?
+            / 32
+            * 32;
         let padded_symbol_end = symbol_len_end
-            .checked_add(symbol_len.div_ceil(32) * 32)
+            .checked_add(padded_symbol_len)
             .ok_or(AbiDecodeError::UintOverflow)?;
         if data.len() < padded_symbol_end {
             return Err(AbiDecodeError::InvalidLength {
