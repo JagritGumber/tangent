@@ -1,4 +1,4 @@
-//! Minimal ABI decoding helpers for single-word return values.
+//! Minimal ABI decoding helpers for fixed-shape return values.
 
 use alloy_primitives::Address;
 
@@ -25,6 +25,17 @@ fn single_word(data: &[u8]) -> Result<&[u8], AbiDecodeError> {
         });
     }
     Ok(data)
+}
+
+pub(crate) fn decode_empty(data: &[u8]) -> Result<(), AbiDecodeError> {
+    if data.is_empty() {
+        Ok(())
+    } else {
+        Err(AbiDecodeError::InvalidLength {
+            expected: 0,
+            actual: data.len(),
+        })
+    }
 }
 
 pub(crate) fn decode_u128(data: &[u8]) -> Result<u128, AbiDecodeError> {
@@ -84,6 +95,7 @@ mod tests {
 
     #[test]
     fn decodes_u128_bool_and_address() {
+        assert_eq!(decode_empty(&[]).expect("empty"), ());
         assert_eq!(decode_u128(&word_with_last(7)).expect("u128"), 7);
         assert_eq!(decode_i128(&word_with_last(7)).expect("i128"), 7);
         assert!(decode_bool(&word_with_last(1)).expect("bool"));
@@ -112,6 +124,13 @@ mod tests {
             AbiDecodeError::InvalidLength {
                 expected: 32,
                 actual: 31,
+            }
+        );
+        assert_eq!(
+            decode_empty(&[0u8; 1]).expect_err("bad empty"),
+            AbiDecodeError::InvalidLength {
+                expected: 0,
+                actual: 1,
             }
         );
 

@@ -76,7 +76,7 @@ available from the checked-in manifest without opening RPC connections.
 - `LiquidationReadPlan` for composing liquidation status reads, fixed-order status decoding, and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
 - Typed read summaries for account, collateral, market, order lifecycle, settlement, and liquidation call results.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
-- Minimal ABI return decoders for balances, ids, addresses, booleans, and bounded signed liquidation equity.
+- Minimal ABI return decoders for balances, ids, addresses, booleans, no-return guard calls, and bounded signed settlement/liquidation values.
 
 It does not yet open an RPC connection, sign through Circle Dev Wallets, estimate gas, or broadcast transactions. Those higher-level client pieces still land with the keeper/client work.
 

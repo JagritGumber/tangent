@@ -113,6 +113,17 @@ impl SettlementReadPlan {
         })
     }
 
+    /// Decode a successful `validateWithdrawal(accountId, amount)` return.
+    ///
+    /// The Solidity function returns no value; any failed validation is a
+    /// revert surfaced by the caller's transport before this decoder runs.
+    pub fn decode_validate_withdrawal_return(
+        &self,
+        validate_withdrawal_return: &[u8],
+    ) -> Result<(), AbiDecodeError> {
+        SettlementCalls::decode_validate_withdrawal_return(validate_withdrawal_return)
+    }
+
     /// Decode returns from [`Self::calls`] in the same fixed order.
     pub fn decode_returns(&self, returns: [&[u8]; 2]) -> Result<SettlementStatus, AbiDecodeError> {
         Ok(SettlementStatus {
@@ -224,6 +235,12 @@ mod tests {
                     maintenance_margin: 9,
                 },
             }
+        );
+
+        assert_eq!(
+            plan.decode_validate_withdrawal_return(&[])
+                .expect("withdrawal validation returned cleanly"),
+            ()
         );
     }
 }

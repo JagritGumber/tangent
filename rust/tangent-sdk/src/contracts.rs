@@ -165,6 +165,10 @@ impl SettlementCalls {
             crate::abi::decode_u128(&data[32..64])?,
         ))
     }
+
+    pub fn decode_validate_withdrawal_return(data: &[u8]) -> Result<(), AbiDecodeError> {
+        crate::abi::decode_empty(data)
+    }
 }
 
 /// ABI helpers for standard ERC-20 calls used by the USDC collateral flow.
@@ -692,6 +696,11 @@ mod tests {
         assert_eq!(
             SettlementCalls::decode_margin_state_return(&margin).expect("margin decodes"),
             (-7, 9)
+        );
+        assert_eq!(
+            SettlementCalls::decode_validate_withdrawal_return(&[])
+                .expect("validateWithdrawal has no return"),
+            ()
         );
     }
 }
