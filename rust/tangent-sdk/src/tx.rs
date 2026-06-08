@@ -16,6 +16,7 @@ pub struct UnsignedCall {
 }
 
 impl UnsignedCall {
+    /// Return the 4-byte function selector when `data` contains calldata.
     #[must_use]
     pub fn selector(&self) -> Option<[u8; 4]> {
         self.data.get(..4).map(|bytes| {
@@ -25,17 +26,20 @@ impl UnsignedCall {
         })
     }
 
+    /// Return the 4-byte function selector as `0x` hex.
     #[must_use]
     pub fn selector_hex(&self) -> Option<String> {
         self.selector()
             .map(|selector| format!("0x{}", hex::encode(selector)))
     }
 
+    /// Return the full calldata as `0x` hex.
     #[must_use]
     pub fn data_hex(&self) -> String {
         format!("0x{}", hex::encode(&self.data))
     }
 
+    /// Return the calldata byte length.
     #[must_use]
     pub fn data_len(&self) -> usize {
         self.data.len()
