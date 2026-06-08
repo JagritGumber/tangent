@@ -4,9 +4,9 @@
 //!   cargo run --example load_manifest -p tangent-sdk
 
 use tangent_sdk::{
-    AccountManagerCalls, AccountOnboardingPlan, AccountStatusPlan, CollateralDepositPlan,
-    CollateralStatusPlan, CollateralWithdrawPlan, DeploymentManifest, ERC20Calls,
-    LiquidationReadPlan, MarketReadPlan, MarketRegistryCalls, SettlementReadPlan, USDCVaultCalls,
+    AccountOnboardingPlan, AccountStatusPlan, CollateralDepositPlan, CollateralStatusPlan,
+    CollateralWithdrawPlan, DeploymentManifest, LiquidationReadPlan, MarketReadPlan,
+    SettlementReadPlan, USDCVaultCalls,
 };
 
 fn main() {
@@ -43,29 +43,6 @@ fn main() {
             .liquidation_keeper
             .map_or_else(|| "not present".to_owned(), |address| address.to_string())
     );
-    println!(
-        "USDC approve selector   : 0x{}",
-        hex::encode(ERC20Calls::approve_selector())
-    );
-    println!(
-        "registerAccount selector: 0x{}",
-        hex::encode(AccountManagerCalls::register_account_selector())
-    );
-    println!(
-        "deposit selector        : 0x{}",
-        hex::encode(USDCVaultCalls::deposit_selector())
-    );
-    println!(
-        "market selector         : 0x{}",
-        hex::encode(MarketRegistryCalls::market_selector())
-    );
-    let mut sample_balance_return = [0u8; 32];
-    sample_balance_return[31] = 7;
-    println!(
-        "sample balance decode   : {}",
-        USDCVaultCalls::decode_free_balance_of_return(&sample_balance_return)
-            .expect("sample return")
-    );
     let deposit_plan = CollateralDepositPlan::from_manifest(&manifest, 1, 1_000_000);
     let withdraw_plan =
         CollateralWithdrawPlan::from_manifest(&manifest, 1, 500_000, manifest.deployer);
@@ -75,6 +52,41 @@ fn main() {
     let market_plan = MarketReadPlan::from_manifest(&manifest, 1);
     let settlement_plan = SettlementReadPlan::from_manifest(&manifest, 1, 1);
     let liquidation_plan = LiquidationReadPlan::from_manifest(&manifest, 1, 1);
+    println!(
+        "USDC approve selector   : {}",
+        deposit_plan
+            .approve_tx()
+            .selector_hex()
+            .expect("approve has selector")
+    );
+    println!(
+        "registerAccount selector: {}",
+        onboarding_plan
+            .register_tx()
+            .selector_hex()
+            .expect("registerAccount has selector")
+    );
+    println!(
+        "deposit selector        : {}",
+        deposit_plan
+            .deposit_tx()
+            .selector_hex()
+            .expect("deposit has selector")
+    );
+    println!(
+        "market selector         : {}",
+        market_plan
+            .market_call()
+            .selector_hex()
+            .expect("market has selector")
+    );
+    let mut sample_balance_return = [0u8; 32];
+    sample_balance_return[31] = 7;
+    println!(
+        "sample balance decode   : {}",
+        USDCVaultCalls::decode_free_balance_of_return(&sample_balance_return)
+            .expect("sample return")
+    );
     println!(
         "sample register tx to   : {}",
         onboarding_plan.register_tx().to
