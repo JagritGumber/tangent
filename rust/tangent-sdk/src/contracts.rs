@@ -1,8 +1,8 @@
 //! Raw calldata helpers for Tangent's currently deployed primitive contracts.
 //!
 //! These helpers produce transaction or `eth_call` input bytes plus minimal
-//! single-word return decoders. They do not perform RPC or assume a contract is
-//! deployed.
+//! fixed-shape return decoders. They do not perform RPC or assume a contract
+//! is deployed.
 
 use alloy_primitives::{keccak256, Address};
 
@@ -507,6 +507,38 @@ mod tests {
         assert_eq!(
             hex::encode(MarketRegistryCalls::total_markets_selector()),
             "8162486b"
+        );
+    }
+
+    #[test]
+    fn liquidation_keeper_selectors_match_foundry_fixtures() {
+        assert_eq!(
+            hex::encode(LiquidationKeeperCalls::liquidate_selector()),
+            "d296d1f1"
+        );
+        assert_eq!(
+            hex::encode(LiquidationKeeperCalls::is_liquidatable_selector()),
+            "825d3cbd"
+        );
+        assert_eq!(
+            hex::encode(LiquidationKeeperCalls::liquidation_state_selector()),
+            "5a370da8"
+        );
+    }
+
+    #[test]
+    fn settlement_selectors_match_foundry_fixtures() {
+        assert_eq!(
+            hex::encode(SettlementCalls::position_of_selector()),
+            "dd15568f"
+        );
+        assert_eq!(
+            hex::encode(SettlementCalls::margin_state_selector()),
+            "c3c1bf22"
+        );
+        assert_eq!(
+            hex::encode(SettlementCalls::validate_withdrawal_selector()),
+            "b2371ec8"
         );
     }
 
