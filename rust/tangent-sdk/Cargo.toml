@@ -1,6 +1,6 @@
 [package]
 name = "tangent-sdk"
-description = "Rust SDK for Tangent: EIP-712 order construction, signed calldata, manifest parsing, and ABI helpers for Arc Testnet."
+description = "Transport-agnostic Rust SDK for Tangent: EIP-712 orders, signed calldata, workflow plans, manifests, and ABI helpers for Arc."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
