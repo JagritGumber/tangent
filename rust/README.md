@@ -69,7 +69,7 @@ while `tangent-sdk` is the only active crate.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
 - `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration, register-return decoding, and account read calls.
 - `CollateralDepositPlan`, `CollateralWithdrawPlan`, and `CollateralStatusPlan` for composing unsigned collateral transactions and read calls against USDC + `USDCVault`.
-- `MarketReadPlan` for composing market registry and mark-price read calls before order construction.
+- `MarketReadPlan` for composing market registry and mark-price read calls, plus fixed-order summary decoding before order construction.
 - Typed read summaries for single-word account, collateral, market, and order lifecycle call results.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
 - Minimal single-word ABI return decoders for balances, ids, addresses, and booleans.

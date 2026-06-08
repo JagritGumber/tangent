@@ -79,6 +79,14 @@ impl MarketReadPlan {
             mark_price: MarketRegistryCalls::decode_mark_price_return(mark_price_return)?,
         })
     }
+
+    /// Decode the single-word summary values from [`Self::calls`].
+    ///
+    /// The middle `market(marketId)` return is intentionally ignored until the
+    /// SDK exposes a typed decoder for that richer tuple.
+    pub fn decode_returns(&self, returns: [&[u8]; 3]) -> Result<MarketReadSummary, AbiDecodeError> {
+        self.decode_summary_returns(returns[0], returns[2])
+    }
 }
 
 #[cfg(test)]
@@ -147,6 +155,32 @@ mod tests {
 
         let decoded = plan
             .decode_summary_returns(&total, &mark)
+            .expect("summary decodes");
+
+        assert_eq!(
+            decoded,
+            MarketReadSummary {
+                total_markets: 2,
+                mark_price: 9,
+            }
+        );
+    }
+
+    #[test]
+    fn decodes_market_read_returns_in_call_order() {
+        fn word(value: u8) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            out[31] = value;
+            out
+        }
+
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let total = word(2);
+        let market_tuple_placeholder = [];
+        let mark = word(9);
+
+        let decoded = plan
+            .decode_returns([&total, &market_tuple_placeholder, &mark])
             .expect("summary decodes");
 
         assert_eq!(
