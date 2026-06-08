@@ -79,6 +79,8 @@ Rust SDK checks are intentionally low-resource by default on Windows:
 ```powershell
 .\rust\scripts\check-light.ps1
 .\rust\scripts\check-light.ps1 -Test lifecycle::tests::decodes_order_lifecycle_status
+.\rust\scripts\check-light.ps1 -Test tx::tests::exposes_selector_helpers -Exact
+.\rust\scripts\check-light.ps1 -Example load_manifest
 ```
 
 See [`rust/README.md`](./rust/README.md) for broader Rust verification commands.
