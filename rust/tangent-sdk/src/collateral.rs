@@ -9,8 +9,8 @@ use crate::{
 
 /// Two-step USDC collateral deposit workflow.
 ///
-/// Broadcast `approve` first, wait for it to be accepted/finalized according to
-/// the caller's policy, then broadcast `deposit`.
+/// Submit `approve` first through the caller's transport, wait for it to be
+/// accepted/finalized according to the caller's policy, then submit `deposit`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollateralDepositPlan {
     pub usdc: Address,

@@ -62,7 +62,8 @@ impl SignedOrder {
     /// ABI-encode `OrderBook.submitOrder(order, signature)` calldata.
     ///
     /// This does not submit a transaction. It produces the exact calldata a
-    /// caller can broadcast once an OrderBook deployment is known.
+    /// caller can pass into their own transaction builder once an OrderBook
+    /// deployment is known.
     #[must_use]
     pub fn submit_order_calldata(&self) -> Vec<u8> {
         const ORDER_WORDS: usize = 8;
