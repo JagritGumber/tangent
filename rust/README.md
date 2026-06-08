@@ -32,6 +32,13 @@ cargo fmt --check
 cargo test -p tangent-sdk <module>::tests::<test_name>
 ```
 
+Or run the low-resource helper from the repository root:
+
+```powershell
+.\rust\scripts\check-light.ps1
+.\rust\scripts\check-light.ps1 -Test lifecycle::tests::decodes_order_lifecycle_status
+```
+
 For broader pre-push verification on a machine with enough headroom:
 
 ```bash
