@@ -33,6 +33,18 @@ impl UnsignedCall {
             .map(|selector| format!("0x{}", hex::encode(selector)))
     }
 
+    /// True when calldata starts with the expected 4-byte selector.
+    #[must_use]
+    pub fn has_selector(&self, expected: [u8; 4]) -> bool {
+        self.selector() == Some(expected)
+    }
+
+    /// Return calldata after the 4-byte selector when present.
+    #[must_use]
+    pub fn arguments(&self) -> Option<&[u8]> {
+        self.data.get(4..)
+    }
+
     /// Return the full calldata as `0x` hex.
     #[must_use]
     pub fn data_hex(&self) -> String {
@@ -64,6 +76,9 @@ mod tests {
 
         assert_eq!(call.selector(), Some([0x12, 0x34, 0x56, 0x78]));
         assert_eq!(call.selector_hex(), Some("0x12345678".to_owned()));
+        assert!(call.has_selector([0x12, 0x34, 0x56, 0x78]));
+        assert!(!call.has_selector([0x12, 0x34, 0x56, 0x79]));
+        assert_eq!(call.arguments(), Some([0xff].as_slice()));
         assert_eq!(call.data_hex(), "0x12345678ff");
         assert_eq!(call.data_len(), 5);
     }
@@ -77,5 +92,7 @@ mod tests {
 
         assert_eq!(call.selector(), None);
         assert_eq!(call.selector_hex(), None);
+        assert!(!call.has_selector([0x12, 0x34, 0x56, 0x78]));
+        assert_eq!(call.arguments(), None);
     }
 }
