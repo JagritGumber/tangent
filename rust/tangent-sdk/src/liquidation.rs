@@ -21,6 +21,21 @@ pub struct LiquidationStatus {
     pub maintenance_margin: u128,
 }
 
+impl LiquidationStatus {
+    /// True when decoded equity is below the decoded maintenance margin.
+    ///
+    /// `is_liquidatable` remains the contract predicate. This helper only
+    /// exposes the simple margin comparison for clients and keeper logs.
+    #[must_use]
+    pub const fn is_below_maintenance(&self) -> bool {
+        if self.equity < 0 {
+            return true;
+        }
+
+        (self.equity as u128) < self.maintenance_margin
+    }
+}
+
 /// Errors that can occur while decoding batched liquidation reads.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum LiquidationDecodeError {
@@ -215,6 +230,10 @@ mod tests {
                 maintenance_margin: 9,
             }
         );
+        assert!(plan
+            .decode_state_return(&data)
+            .expect("state decodes")
+            .is_below_maintenance());
 
         assert_eq!(
             plan.decode_returns([&yes, &data])
@@ -225,6 +244,30 @@ mod tests {
                 maintenance_margin: 9,
             }
         );
+    }
+
+    #[test]
+    fn exposes_liquidation_margin_status_helper() {
+        assert!(LiquidationStatus {
+            is_liquidatable: true,
+            equity: -1,
+            maintenance_margin: 0,
+        }
+        .is_below_maintenance());
+
+        assert!(LiquidationStatus {
+            is_liquidatable: true,
+            equity: 9,
+            maintenance_margin: 10,
+        }
+        .is_below_maintenance());
+
+        assert!(!LiquidationStatus {
+            is_liquidatable: false,
+            equity: 10,
+            maintenance_margin: 10,
+        }
+        .is_below_maintenance());
     }
 
     #[test]
