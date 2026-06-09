@@ -314,6 +314,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_trailing_market_symbol_return_bytes() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let mut data = encoded_market(false);
+        data.push(0);
+
+        assert_eq!(
+            plan.decode_market_return(&data)
+                .expect_err("trailing bytes after padded symbol"),
+            AbiDecodeError::InvalidLength {
+                expected: 352,
+                actual: 353,
+            }
+        );
+    }
+
+    #[test]
     fn rejects_invalid_market_symbol_utf8() {
         let plan = MarketReadPlan::new(addr(0x20), 7);
         let mut data = encoded_market(false);

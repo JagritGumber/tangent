@@ -481,7 +481,7 @@ impl MarketRegistryCalls {
         let padded_symbol_end = symbol_len_end
             .checked_add(padded_symbol_len)
             .ok_or(AbiDecodeError::UintOverflow)?;
-        if data.len() < padded_symbol_end {
+        if data.len() != padded_symbol_end {
             return Err(AbiDecodeError::InvalidLength {
                 expected: padded_symbol_end,
                 actual: data.len(),
