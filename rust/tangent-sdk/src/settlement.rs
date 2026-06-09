@@ -51,6 +51,20 @@ pub struct SettlementStatus {
     pub margin: MarginStatus,
 }
 
+impl SettlementStatus {
+    /// True when the decoded position has non-zero signed size.
+    #[must_use]
+    pub const fn has_open_position(&self) -> bool {
+        self.position.is_open()
+    }
+
+    /// True when the decoded aggregate margin state is above maintenance.
+    #[must_use]
+    pub const fn is_margin_healthy(&self) -> bool {
+        self.margin.is_healthy()
+    }
+}
+
 impl SettlementReadPlan {
     #[must_use]
     pub const fn new(settlement_engine: Address, account_id: u128, market_id: u128) -> Self {
@@ -294,5 +308,36 @@ mod tests {
             maintenance_margin: 0,
         }
         .is_healthy());
+    }
+
+    #[test]
+    fn exposes_settlement_status_helpers() {
+        let open_and_healthy = SettlementStatus {
+            position: PositionStatus {
+                size: 1,
+                entry_price: 65_000,
+                locked_margin: 1_000,
+            },
+            margin: MarginStatus {
+                equity: 1_000,
+                maintenance_margin: 500,
+            },
+        };
+        assert!(open_and_healthy.has_open_position());
+        assert!(open_and_healthy.is_margin_healthy());
+
+        let flat_and_unhealthy = SettlementStatus {
+            position: PositionStatus {
+                size: 0,
+                entry_price: 0,
+                locked_margin: 0,
+            },
+            margin: MarginStatus {
+                equity: 499,
+                maintenance_margin: 500,
+            },
+        };
+        assert!(!flat_and_unhealthy.has_open_position());
+        assert!(!flat_and_unhealthy.is_margin_healthy());
     }
 }
