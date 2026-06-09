@@ -52,6 +52,12 @@ impl SignedOrder {
     pub const SUBMIT_ORDER_SIGNATURE: &'static str =
         "submitOrder((uint256,uint256,bool,uint256,uint256,uint256,uint256,bool),bytes)";
 
+    /// Return the on-chain order hash for this signed payload.
+    #[must_use]
+    pub fn order_hash(&self) -> B256 {
+        self.order.order_hash()
+    }
+
     /// Compute the 4-byte selector for `submitOrder(Order,bytes)`.
     #[must_use]
     pub fn submit_order_selector() -> [u8; 4] {
@@ -233,6 +239,7 @@ mod tests {
             "e8357b2d"
         );
         assert_eq!(&calldata[0..4], &SignedOrder::submit_order_selector());
+        assert_eq!(signed.order_hash(), signed.order.order_hash());
         assert_eq!(calldata.len(), 420);
         assert_eq!(
             hex::encode(&calldata[4 + 8 * 32..4 + 9 * 32]),

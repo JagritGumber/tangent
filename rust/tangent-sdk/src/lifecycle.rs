@@ -83,7 +83,7 @@ impl OrderLifecyclePlan {
 
     #[must_use]
     pub fn order_hash(&self) -> alloy_primitives::B256 {
-        self.signed_order.order.order_hash()
+        self.signed_order.order_hash()
     }
 
     #[must_use]
