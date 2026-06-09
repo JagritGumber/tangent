@@ -63,6 +63,18 @@ impl OrderConstraints {
             lot_size,
         }
     }
+
+    /// True when a limit price satisfies this market's tick size.
+    #[must_use]
+    pub const fn accepts_price(&self, limit_price: u128) -> bool {
+        self.tick_size != 0 && limit_price != 0 && limit_price % self.tick_size == 0
+    }
+
+    /// True when an order size satisfies this market's lot size.
+    #[must_use]
+    pub const fn accepts_size(&self, size: u128) -> bool {
+        self.lot_size != 0 && size != 0 && size % self.lot_size == 0
+    }
 }
 
 /// A single perpetual-futures order, EIP-712-signed by an account's owner.
@@ -168,10 +180,10 @@ impl Order {
         if constraints.lot_size == 0 {
             return Err(OrderError::Invalid("lot_size must be non-zero".into()));
         }
-        if self.limit_price % constraints.tick_size != 0 {
+        if !constraints.accepts_price(self.limit_price) {
             return Err(OrderError::Invalid("limit_price violates tick_size".into()));
         }
-        if self.size % constraints.lot_size != 0 {
+        if !constraints.accepts_size(self.size) {
             return Err(OrderError::Invalid("size violates lot_size".into()));
         }
         Ok(())
@@ -509,6 +521,12 @@ mod tests {
     #[test]
     fn validation_rejects_tick_lot_and_expiry_errors() {
         let constraints = OrderConstraints::new(100, 1_000_000_000_000_000);
+        assert!(constraints.accepts_price(65_000 * PRICE_SCALE));
+        assert!(constraints.accepts_size(BASE_SCALE));
+        assert!(!constraints.accepts_price(65_000 * PRICE_SCALE + 1));
+        assert!(!constraints.accepts_size(BASE_SCALE + 1));
+        assert!(!OrderConstraints::new(0, constraints.lot_size).accepts_price(100));
+        assert!(!OrderConstraints::new(constraints.tick_size, 0).accepts_size(100));
 
         let bad_tick = Order::new(
             7,
