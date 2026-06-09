@@ -9,7 +9,7 @@
 use alloy_primitives::Address;
 use tangent_sdk::{
     DomainSeparatorInput, Order, OrderBookMaintenancePlan, OrderConstraints, OrderLifecyclePlan,
-    OrderParams, OrderSignature, Side, BASE_SCALE, PRICE_SCALE,
+    OrderParams, OrderSignature, Side, SignedOrder, BASE_SCALE, PRICE_SCALE,
 };
 
 fn main() {
@@ -32,11 +32,12 @@ fn main() {
     .build(btc_constraints, 1_716_999_000)
     .expect("valid order");
 
+    let constraints_accept_order = btc_constraints.accepts_price(order.limit_price)
+        && btc_constraints.accepts_size(order.size);
     let chain_id = 11111;
     let verifying_contract = Address::ZERO;
     let domain = DomainSeparatorInput::new(chain_id, verifying_contract);
     let domain_separator = domain.separator();
-    let order_hash = order.order_hash();
     let prepared = order.prepare(domain);
     let digest = prepared.digest;
 
@@ -51,6 +52,7 @@ fn main() {
     let is_live_call = lifecycle.is_live_call();
     let order_of_call = lifecycle.order_of_call();
     let tick_tx = maintenance.tick_tx();
+    let order_hash = signed_order.order_hash();
 
     println!("=== tangent-sdk example: constructed order ===");
     println!("EIP-712 domain:");
@@ -63,6 +65,7 @@ fn main() {
     println!("Order:");
     println!("  accountId   : {}", signed_order.order.account_id);
     println!("  marketId    : {}", signed_order.order.market_id);
+    println!("  side        : {:?}", signed_order.order.side());
     println!("  isBuy       : {}", signed_order.order.is_buy);
     println!(
         "  limitPrice  : {} (PRICE_SCALE=1e8)",
@@ -75,6 +78,7 @@ fn main() {
     println!("  nonce       : {}", signed_order.order.nonce);
     println!("  expiry      : {}", signed_order.order.expiry);
     println!("  reduceOnly  : {}", signed_order.order.reduce_only);
+    println!("  constraints : {constraints_accept_order}");
     println!();
     println!("EIP-712 type string:");
     println!("  {}", Order::EIP712_TYPE_STRING);
@@ -93,6 +97,19 @@ fn main() {
     println!("  {}", submit_tx.data_len());
     println!("submitOrder tx target:");
     println!("  {}", submit_tx.to);
+    println!("submitOrder selector match:");
+    println!(
+        "  {}",
+        submit_tx.has_selector(SignedOrder::submit_order_selector())
+    );
+    println!("submitOrder argument bytes:");
+    println!(
+        "  {}",
+        submit_tx
+            .arguments()
+            .expect("submitOrder has selector and args")
+            .len()
+    );
     println!("cancelOrder selector:");
     println!(
         "  {}",
