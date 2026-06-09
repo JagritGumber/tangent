@@ -128,6 +128,16 @@ pub struct CollateralStatus {
     pub total_balance: u128,
 }
 
+impl CollateralStatus {
+    /// True when decoded vault balances satisfy `free + locked == total`.
+    #[must_use]
+    pub fn vault_balances_match(&self) -> bool {
+        self.free_balance
+            .checked_add(self.locked_balance)
+            .is_some_and(|sum| sum == self.total_balance)
+    }
+}
+
 impl CollateralStatusPlan {
     #[must_use]
     pub const fn new(usdc: Address, vault: Address, owner: Address, account_id: u128) -> Self {
@@ -365,5 +375,27 @@ mod tests {
                 total_balance: 7,
             }
         );
+        assert!(decoded.vault_balances_match());
+    }
+
+    #[test]
+    fn detects_inconsistent_collateral_status_totals() {
+        assert!(!CollateralStatus {
+            usdc_balance: 1,
+            vault_allowance: 2,
+            free_balance: 3,
+            locked_balance: 4,
+            total_balance: 8,
+        }
+        .vault_balances_match());
+
+        assert!(!CollateralStatus {
+            usdc_balance: 1,
+            vault_allowance: 2,
+            free_balance: u128::MAX,
+            locked_balance: 1,
+            total_balance: 0,
+        }
+        .vault_balances_match());
     }
 }
