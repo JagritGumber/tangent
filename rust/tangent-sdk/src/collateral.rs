@@ -136,6 +136,21 @@ impl CollateralStatus {
             .checked_add(self.locked_balance)
             .is_some_and(|sum| sum == self.total_balance)
     }
+
+    /// True when wallet USDC balance and vault allowance both cover `amount`.
+    #[must_use]
+    pub const fn covers_deposit_amount(&self, amount: u128) -> bool {
+        self.usdc_balance >= amount && self.vault_allowance >= amount
+    }
+
+    /// True when decoded free vault balance covers `amount`.
+    ///
+    /// This is only a local balance check. Settlement health checks can still
+    /// reject a withdrawal on-chain after positions and margin are considered.
+    #[must_use]
+    pub const fn covers_withdrawal_amount(&self, amount: u128) -> bool {
+        self.free_balance >= amount
+    }
 }
 
 impl CollateralStatusPlan {
@@ -376,6 +391,10 @@ mod tests {
             }
         );
         assert!(decoded.vault_balances_match());
+        assert!(decoded.covers_deposit_amount(1));
+        assert!(!decoded.covers_deposit_amount(2));
+        assert!(decoded.covers_withdrawal_amount(3));
+        assert!(!decoded.covers_withdrawal_amount(4));
     }
 
     #[test]
