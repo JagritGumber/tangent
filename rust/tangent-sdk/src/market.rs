@@ -153,6 +153,22 @@ impl MarketReadPlan {
         })
     }
 
+    /// Validate an order against this plan's market id and decoded metadata.
+    pub fn validate_order(
+        &self,
+        market: &MarketDetails,
+        order: &Order,
+        current_timestamp: u64,
+    ) -> Result<(), OrderError> {
+        if order.market_id != self.market_id {
+            return Err(OrderError::Invalid(
+                "order market_id does not match plan".into(),
+            ));
+        }
+
+        market.validate_order(order, current_timestamp)
+    }
+
     /// Decode returns from [`Self::calls`] in the same fixed order.
     pub fn decode_returns(&self, returns: [&[u8]; 3]) -> Result<MarketReadSummary, AbiDecodeError> {
         Ok(MarketReadSummary {
@@ -355,6 +371,47 @@ mod tests {
                     1,
                     true,
                     65_000 * crate::PRICE_SCALE + 1,
+                    crate::BASE_SCALE,
+                    1,
+                    1_717_000_000,
+                    false,
+                ),
+                1_716_999_000,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn validates_order_against_market_read_plan() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let details = plan
+            .decode_market_return(&encoded_market(false))
+            .expect("market decodes");
+
+        plan.validate_order(
+            &details,
+            &Order::new(
+                7,
+                7,
+                true,
+                65_000 * crate::PRICE_SCALE,
+                crate::BASE_SCALE,
+                1,
+                1_717_000_000,
+                false,
+            ),
+            1_716_999_000,
+        )
+        .expect("order validates against plan market id");
+
+        assert!(plan
+            .validate_order(
+                &details,
+                &Order::new(
+                    7,
+                    8,
+                    true,
+                    65_000 * crate::PRICE_SCALE,
                     crate::BASE_SCALE,
                     1,
                     1_717_000_000,
