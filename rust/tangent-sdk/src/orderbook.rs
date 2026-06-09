@@ -109,19 +109,25 @@ impl OrderBookCalls {
             return Err(AbiDecodeError::UintOverflow);
         }
 
-        Ok((
-            Order::new(
-                crate::abi::decode_u128(&data[0..32])?,
-                crate::abi::decode_u128(&data[32..64])?,
-                crate::abi::decode_bool(&data[64..96])?,
-                crate::abi::decode_u128(&data[96..128])?,
-                crate::abi::decode_u128(&data[128..160])?,
-                crate::abi::decode_u128(&data[160..192])?,
-                expiry as u64,
-                crate::abi::decode_bool(&data[224..256])?,
-            ),
-            crate::abi::decode_bool(&data[256..288])?,
-        ))
+        let order = Order::new(
+            crate::abi::decode_u128(&data[0..32])?,
+            crate::abi::decode_u128(&data[32..64])?,
+            crate::abi::decode_bool(&data[64..96])?,
+            crate::abi::decode_u128(&data[96..128])?,
+            crate::abi::decode_u128(&data[128..160])?,
+            crate::abi::decode_u128(&data[160..192])?,
+            expiry as u64,
+            crate::abi::decode_bool(&data[224..256])?,
+        );
+        let exists = crate::abi::decode_bool(&data[256..288])?;
+
+        if !exists && order != Order::new(0, 0, false, 0, 0, 0, 0, false) {
+            return Err(AbiDecodeError::InconsistentData(
+                "orderOf returned exists=false with non-zero order fields",
+            ));
+        }
+
+        Ok((order, exists))
     }
 }
 
@@ -218,6 +224,19 @@ mod tests {
                 expected: 288,
                 actual: 287,
             }
+        );
+    }
+
+    #[test]
+    fn rejects_missing_order_of_return_with_nonzero_order() {
+        let mut data = [0u8; 288];
+        data[31] = 7;
+
+        assert_eq!(
+            OrderBookCalls::decode_order_of_return(&data).expect_err("inconsistent missing order"),
+            AbiDecodeError::InconsistentData(
+                "orderOf returned exists=false with non-zero order fields",
+            )
         );
     }
 

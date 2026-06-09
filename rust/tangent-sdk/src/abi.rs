@@ -19,6 +19,8 @@ pub enum AbiDecodeError {
     InvalidAddressPadding,
     #[error("invalid ABI string: not valid UTF-8")]
     InvalidStringUtf8,
+    #[error("inconsistent ABI return data: {0}")]
+    InconsistentData(&'static str),
 }
 
 fn single_word(data: &[u8]) -> Result<&[u8], AbiDecodeError> {
