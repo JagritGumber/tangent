@@ -33,6 +33,14 @@ pub struct AccountStatus {
     pub total_accounts: u128,
 }
 
+impl AccountStatus {
+    /// True when both account lookup directions match the expected binding.
+    #[must_use]
+    pub fn matches(&self, owner: Address, account_id: u128) -> bool {
+        self.owner_of_account == owner && self.account_id_of_owner == account_id
+    }
+}
+
 impl AccountOnboardingPlan {
     #[must_use]
     pub const fn new(account_manager: Address, owner: Address) -> Self {
@@ -259,5 +267,8 @@ mod tests {
                 total_accounts: 9,
             }
         );
+        assert!(decoded.matches(addr(0x30), 7));
+        assert!(!decoded.matches(addr(0x31), 7));
+        assert!(!decoded.matches(addr(0x30), 8));
     }
 }
