@@ -121,7 +121,10 @@ impl OrderSignature {
 
     /// Parse a hex signature with or without a `0x` prefix.
     pub fn from_hex(input: &str) -> Result<Self, SignatureError> {
-        let trimmed = input.strip_prefix("0x").unwrap_or(input);
+        let trimmed = input
+            .strip_prefix("0x")
+            .or_else(|| input.strip_prefix("0X"))
+            .unwrap_or(input);
         let bytes = hex::decode(trimmed).map_err(SignatureError::Hex)?;
         Self::from_bytes(bytes)
     }
@@ -205,8 +208,11 @@ mod tests {
         let signature = OrderSignature::from_bytes([1u8; OrderSignature::LEN]).expect("valid");
         let encoded = signature.to_hex();
         let decoded = OrderSignature::from_hex(&encoded).expect("valid hex");
+        let decoded_upper_prefix =
+            OrderSignature::from_hex(&encoded.replacen("0x", "0X", 1)).expect("valid hex");
 
         assert_eq!(signature, decoded);
+        assert_eq!(signature, decoded_upper_prefix);
     }
 
     #[test]
