@@ -34,6 +34,16 @@ impl Side {
     pub const fn is_buy(self) -> bool {
         matches!(self, Self::Buy)
     }
+
+    /// Convert from the Solidity `Order.isBuy` boolean.
+    #[must_use]
+    pub const fn from_is_buy(is_buy: bool) -> Self {
+        if is_buy {
+            Self::Buy
+        } else {
+            Self::Sell
+        }
+    }
 }
 
 /// Submit-time market constraints mirrored from `OrderBook.submitOrder`.
@@ -120,6 +130,12 @@ impl Order {
     #[must_use]
     pub fn builder() -> OrderBuilder {
         OrderBuilder::default()
+    }
+
+    /// Return the readable side represented by the wire `is_buy` flag.
+    #[must_use]
+    pub const fn side(&self) -> Side {
+        Side::from_is_buy(self.is_buy)
     }
 
     /// Validate local fields and known market constraints before signing.
@@ -404,7 +420,30 @@ mod tests {
             .expect("valid order");
 
         assert!(order.is_buy);
+        assert_eq!(order.side(), Side::Buy);
         assert!(!order.reduce_only);
+    }
+
+    #[test]
+    fn side_roundtrips_wire_boolean() {
+        assert!(Side::Buy.is_buy());
+        assert!(!Side::Sell.is_buy());
+        assert_eq!(Side::from_is_buy(true), Side::Buy);
+        assert_eq!(Side::from_is_buy(false), Side::Sell);
+        assert_eq!(
+            Order::new(
+                7,
+                1,
+                false,
+                65_000 * PRICE_SCALE,
+                BASE_SCALE,
+                42,
+                100,
+                false
+            )
+            .side(),
+            Side::Sell
+        );
     }
 
     #[test]
