@@ -8,7 +8,7 @@ See [`../ARCHITECTURE.md`](../ARCHITECTURE.md) §2.2 for the layer's design rati
 
 | Crate | Kind | Roadmap | Status |
 |---|---|---|---|
-| [`tangent-sdk`](./tangent-sdk/) | library | v0.1 (raw SDK) → v0.8 (RPC client) | **shipping today**: EIP-712 orders, deployment manifest parsing, signed-order calldata, workflow plans, contract calldata helpers, ABI return decoders |
+| [`tangent-sdk`](./tangent-sdk/) | library | v0.1 (raw SDK) → v0.8 (RPC client) | **shipping today**: EIP-712 orders, deployment manifest parsing, signed-order calldata, workflow plans, contract calldata helpers, ABI return decoders, decoded-status helpers |
 
 ## Roadmap (members landing in future versions)
 
@@ -81,6 +81,7 @@ available from the checked-in manifest without opening RPC connections.
 - `LiquidationReadPlan` for composing liquidation status reads, fixed-order status decoding, and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
 - Fixed transaction batches for single-path workflows such as account registration, collateral deposit/withdrawal, keeper tick, and permissionless liquidation.
 - Typed read summaries for account, collateral, market, order lifecycle, settlement, and liquidation call results.
+- Decoded-status helpers for account binding checks, collateral balance consistency, market order constraints, position openness, margin health, liquidation margin comparison, and manifest full-stack availability.
 - `UnsignedCall` helpers for inspecting selectors, calldata hex, and byte lengths without hand-slicing calldata bytes.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
 - Minimal ABI return decoders for balances, ids, addresses, booleans, no-return guard calls, and bounded signed settlement/liquidation values.
