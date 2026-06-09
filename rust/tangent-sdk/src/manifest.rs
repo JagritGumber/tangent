@@ -31,6 +31,30 @@ impl DeploymentManifest {
             .order_book
             .map(|address| crate::DomainSeparatorInput::new(self.chain_id, address))
     }
+
+    /// True when the manifest includes an `OrderBook` deployment.
+    #[must_use]
+    pub const fn has_order_book(&self) -> bool {
+        self.contracts.order_book.is_some()
+    }
+
+    /// True when the manifest includes a `SettlementEngine` deployment.
+    #[must_use]
+    pub const fn has_settlement_engine(&self) -> bool {
+        self.contracts.settlement_engine.is_some()
+    }
+
+    /// True when the manifest includes a `LiquidationKeeper` deployment.
+    #[must_use]
+    pub const fn has_liquidation_keeper(&self) -> bool {
+        self.contracts.liquidation_keeper.is_some()
+    }
+
+    /// True when all full perp DEX contracts are present.
+    #[must_use]
+    pub const fn has_perp_stack(&self) -> bool {
+        self.has_order_book() && self.has_settlement_engine() && self.has_liquidation_keeper()
+    }
 }
 
 /// Contract addresses known for a deployment.
@@ -82,5 +106,45 @@ mod tests {
         assert_eq!(manifest.chain_id, 11111);
         assert_eq!(manifest.contracts.order_book, None);
         assert_eq!(manifest.order_book_domain(), None);
+        assert!(!manifest.has_order_book());
+        assert!(!manifest.has_settlement_engine());
+        assert!(!manifest.has_liquidation_keeper());
+        assert!(!manifest.has_perp_stack());
+    }
+
+    #[test]
+    fn reports_full_perp_stack_when_optional_contracts_are_present() {
+        let manifest = DeploymentManifest {
+            project: "Tangent".to_owned(),
+            version: "0.1.0".to_owned(),
+            chain_id: 11111,
+            network: "arc-testnet".to_owned(),
+            deployed_at: "2026-05-25T18:42:40.104Z".to_owned(),
+            deployer: Address::repeat_byte(0x10),
+            contracts: ContractAddresses {
+                account_manager: Address::repeat_byte(0x11),
+                usdc_vault: Address::repeat_byte(0x12),
+                market_registry: Address::repeat_byte(0x13),
+                order_book: Some(Address::repeat_byte(0x14)),
+                settlement_engine: Some(Address::repeat_byte(0x15)),
+                liquidation_keeper: Some(Address::repeat_byte(0x16)),
+            },
+            verified_on_arcscan: true,
+            constants: NetworkConstants {
+                usdc: Address::repeat_byte(0x17),
+            },
+        };
+
+        assert!(manifest.has_order_book());
+        assert!(manifest.has_settlement_engine());
+        assert!(manifest.has_liquidation_keeper());
+        assert!(manifest.has_perp_stack());
+        assert_eq!(
+            manifest
+                .order_book_domain()
+                .expect("order book domain")
+                .verifying_contract,
+            Address::repeat_byte(0x14)
+        );
     }
 }
