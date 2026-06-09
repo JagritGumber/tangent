@@ -39,6 +39,16 @@ impl AccountStatus {
     pub fn matches(&self, owner: Address, account_id: u128) -> bool {
         self.owner_of_account == owner && self.account_id_of_owner == account_id
     }
+
+    /// True when the decoded binding matches and the account id is registered.
+    ///
+    /// Tangent account ids start at 1 and `accountIdOf(unknownOwner)` returns
+    /// zero, so a registered account must be non-zero and no larger than the
+    /// decoded `totalAccounts` value.
+    #[must_use]
+    pub fn is_registered_binding(&self, owner: Address, account_id: u128) -> bool {
+        self.matches(owner, account_id) && account_id != 0 && account_id <= self.total_accounts
+    }
 }
 
 impl AccountOnboardingPlan {
@@ -268,7 +278,20 @@ mod tests {
             }
         );
         assert!(decoded.matches(addr(0x30), 7));
+        assert!(decoded.is_registered_binding(addr(0x30), 7));
         assert!(!decoded.matches(addr(0x31), 7));
         assert!(!decoded.matches(addr(0x30), 8));
+        assert!(!AccountStatus {
+            owner_of_account: addr(0x30),
+            account_id_of_owner: 0,
+            total_accounts: 9,
+        }
+        .is_registered_binding(addr(0x30), 0));
+        assert!(!AccountStatus {
+            owner_of_account: addr(0x30),
+            account_id_of_owner: 10,
+            total_accounts: 9,
+        }
+        .is_registered_binding(addr(0x30), 10));
     }
 }
