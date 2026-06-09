@@ -21,11 +21,27 @@ pub struct PositionStatus {
     pub locked_margin: u128,
 }
 
+impl PositionStatus {
+    /// True when the account has non-zero signed size in this market.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.size != 0
+    }
+}
+
 /// Decoded aggregate account margin state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarginStatus {
     pub equity: i128,
     pub maintenance_margin: u128,
+}
+
+impl MarginStatus {
+    /// True when non-negative equity covers the maintenance margin.
+    #[must_use]
+    pub const fn is_healthy(&self) -> bool {
+        self.equity >= 0 && self.equity as u128 >= self.maintenance_margin
+    }
 }
 
 /// Decoded settlement status for one account/market pair.
@@ -208,6 +224,10 @@ mod tests {
                 locked_margin: 9,
             }
         );
+        assert!(plan
+            .decode_position_return(&position)
+            .expect("position decodes")
+            .is_open());
 
         let mut margin = Vec::new();
         margin.extend_from_slice(&signed_word(-7));
@@ -220,6 +240,10 @@ mod tests {
                 maintenance_margin: 9,
             }
         );
+        assert!(!plan
+            .decode_margin_return(&margin)
+            .expect("margin decodes")
+            .is_healthy());
 
         assert_eq!(
             plan.decode_returns([&position, &margin])
@@ -242,5 +266,33 @@ mod tests {
                 .expect("withdrawal validation returned cleanly"),
             ()
         );
+    }
+
+    #[test]
+    fn exposes_position_and_margin_status_helpers() {
+        assert!(!PositionStatus {
+            size: 0,
+            entry_price: 0,
+            locked_margin: 0,
+        }
+        .is_open());
+
+        assert!(MarginStatus {
+            equity: 10,
+            maintenance_margin: 10,
+        }
+        .is_healthy());
+
+        assert!(!MarginStatus {
+            equity: 9,
+            maintenance_margin: 10,
+        }
+        .is_healthy());
+
+        assert!(!MarginStatus {
+            equity: -1,
+            maintenance_margin: 0,
+        }
+        .is_healthy());
     }
 }
