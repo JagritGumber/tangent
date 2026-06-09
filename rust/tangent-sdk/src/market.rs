@@ -58,6 +58,15 @@ pub struct MarketReadSummary {
 }
 
 impl MarketReadSummary {
+    /// True when `market_id` is non-zero and within decoded `total_markets`.
+    ///
+    /// Tangent market ids start at 1 and `0` is reserved as the unknown-market
+    /// sentinel, matching the Solidity `MarketRegistry` registration model.
+    #[must_use]
+    pub const fn includes_market_id(&self, market_id: u128) -> bool {
+        market_id != 0 && market_id <= self.total_markets
+    }
+
     /// Build order validation constraints when market metadata was decoded.
     #[must_use]
     pub fn order_constraints(&self) -> Option<OrderConstraints> {
@@ -255,6 +264,10 @@ mod tests {
                 market: None,
             }
         );
+        assert!(decoded.includes_market_id(1));
+        assert!(decoded.includes_market_id(2));
+        assert!(!decoded.includes_market_id(0));
+        assert!(!decoded.includes_market_id(3));
         assert_eq!(decoded.order_constraints(), None);
     }
 
@@ -297,6 +310,7 @@ mod tests {
             decoded.order_constraints(),
             Some(OrderConstraints::new(100, 1_000_000_000_000_000))
         );
+        assert!(!decoded.includes_market_id(7));
     }
 
     #[test]
