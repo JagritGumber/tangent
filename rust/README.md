@@ -71,7 +71,7 @@ available from the checked-in manifest without opening RPC connections.
 - Canonical `Order`, `OrderParams`, `OrderConstraints`, and EIP-712 domain/digest helpers matching `OrderTypes.sol`.
 - `PreparedOrder`, `OrderSignature`, and `SignedOrder` helpers for attaching externally produced signatures and encoding `OrderBook.submitOrder`.
 - `OrderLifecyclePlan` for composing submit, cancel, `isLive`, and `orderOf` calls around one signed order.
-- Grouped order lifecycle read calls and fixed-order `isLive` + stored-order decoding for transport layers that batch `isLive` and `orderOf` lookups.
+- Grouped order lifecycle read calls and fixed-order `isLive` + stored-order decoding for transport layers that batch `isLive` and `orderOf` lookups, including inconsistent live/missing-order rejection.
 - `OrderBookMaintenancePlan` for composing the permissionless `tick()` transaction used by keepers.
 - Calldata builders for `OrderBook`, `AccountManager`, `USDCVault`, `MarketRegistry`, and standard ERC-20 calls used by the collateral path.
 - `AccountOnboardingPlan` and `AccountStatusPlan` for composing permissionless account registration, register-return decoding, and account read calls.
@@ -81,7 +81,7 @@ available from the checked-in manifest without opening RPC connections.
 - `LiquidationReadPlan` for composing liquidation status reads, fixed-order status decoding, and unsigned permissionless liquidation calldata without choosing keeper transport or profitability policy.
 - Fixed transaction batches for single-path workflows such as account registration, collateral deposit/withdrawal, keeper tick, and permissionless liquidation.
 - Typed read summaries for account, collateral, market, order lifecycle, settlement, and liquidation call results.
-- Decoded-status helpers for account binding checks, collateral balance consistency, market order constraints, position openness, margin health, liquidation margin comparison, and manifest full-stack availability.
+- Decoded-status helpers for registered account binding checks, collateral balance consistency, deposit/withdrawal amount coverage, market order constraints, position openness, aggregate margin health, liquidation margin comparison, settlement status summaries, and manifest full-stack availability.
 - `UnsignedCall` helpers for inspecting selectors, calldata hex, and byte lengths without hand-slicing calldata bytes.
 - Deployment-manifest parsing for checked-in Arc Testnet manifests.
 - Minimal ABI return decoders for balances, ids, addresses, booleans, no-return guard calls, and bounded signed settlement/liquidation values.
