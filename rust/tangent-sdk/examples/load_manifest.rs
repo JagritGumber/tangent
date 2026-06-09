@@ -18,7 +18,11 @@ fn main() {
     println!("project : {}", manifest.project);
     println!("network : {}", manifest.network);
     println!("chainId : {}", manifest.chain_id);
-    println!("perp stack: {}", manifest.has_perp_stack());
+    let perp_stack = manifest.perp_stack_availability();
+    println!("perp stack: {}", perp_stack.is_complete());
+    println!("  orderBook      : {}", perp_stack.order_book);
+    println!("  settlement     : {}", perp_stack.settlement_engine);
+    println!("  liquidation    : {}", perp_stack.liquidation_keeper);
     println!("USDC    : {}", manifest.constants.usdc);
     println!("AccountManager : {}", manifest.contracts.account_manager);
     println!("USDCVault      : {}", manifest.contracts.usdc_vault);

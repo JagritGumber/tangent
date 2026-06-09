@@ -50,10 +50,36 @@ impl DeploymentManifest {
         self.contracts.liquidation_keeper.is_some()
     }
 
+    /// Report which optional full-stack perp contracts are present.
+    #[must_use]
+    pub const fn perp_stack_availability(&self) -> PerpStackAvailability {
+        PerpStackAvailability {
+            order_book: self.has_order_book(),
+            settlement_engine: self.has_settlement_engine(),
+            liquidation_keeper: self.has_liquidation_keeper(),
+        }
+    }
+
     /// True when all full perp DEX contracts are present.
     #[must_use]
     pub const fn has_perp_stack(&self) -> bool {
-        self.has_order_book() && self.has_settlement_engine() && self.has_liquidation_keeper()
+        self.perp_stack_availability().is_complete()
+    }
+}
+
+/// Presence flags for optional full-stack perp contracts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PerpStackAvailability {
+    pub order_book: bool,
+    pub settlement_engine: bool,
+    pub liquidation_keeper: bool,
+}
+
+impl PerpStackAvailability {
+    /// True when all optional full-stack perp contracts are present.
+    #[must_use]
+    pub const fn is_complete(&self) -> bool {
+        self.order_book && self.settlement_engine && self.liquidation_keeper
     }
 }
 
@@ -110,6 +136,15 @@ mod tests {
         assert!(!manifest.has_settlement_engine());
         assert!(!manifest.has_liquidation_keeper());
         assert!(!manifest.has_perp_stack());
+        assert_eq!(
+            manifest.perp_stack_availability(),
+            PerpStackAvailability {
+                order_book: false,
+                settlement_engine: false,
+                liquidation_keeper: false,
+            }
+        );
+        assert!(!manifest.perp_stack_availability().is_complete());
     }
 
     #[test]
@@ -139,6 +174,15 @@ mod tests {
         assert!(manifest.has_settlement_engine());
         assert!(manifest.has_liquidation_keeper());
         assert!(manifest.has_perp_stack());
+        assert_eq!(
+            manifest.perp_stack_availability(),
+            PerpStackAvailability {
+                order_book: true,
+                settlement_engine: true,
+                liquidation_keeper: true,
+            }
+        );
+        assert!(manifest.perp_stack_availability().is_complete());
         assert_eq!(
             manifest
                 .order_book_domain()
