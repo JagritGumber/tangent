@@ -151,9 +151,18 @@ impl OrderLifecyclePlan {
         &self,
         returns: [&[u8]; 2],
     ) -> Result<OrderLifecycleStatus, AbiDecodeError> {
+        let is_live = OrderBookCalls::decode_is_live_return(returns[0])?;
+        let stored_order = self.decode_order_of_return(returns[1])?;
+
+        if is_live && stored_order.is_none() {
+            return Err(AbiDecodeError::InconsistentData(
+                "isLive returned true but orderOf returned missing order",
+            ));
+        }
+
         Ok(OrderLifecycleStatus {
-            is_live: OrderBookCalls::decode_is_live_return(returns[0])?,
-            stored_order: self.decode_order_of_return(returns[1])?,
+            is_live,
+            stored_order,
         })
     }
 }
@@ -273,6 +282,22 @@ mod tests {
             }
         );
         assert!(!decoded.is_known());
+    }
+
+    #[test]
+    fn rejects_live_missing_order_lifecycle_return() {
+        let plan = OrderLifecyclePlan::new(Address::repeat_byte(0x20), signed_order());
+        let mut yes = [0u8; 32];
+        yes[31] = 1;
+        let missing_order = [0u8; 288];
+
+        assert_eq!(
+            plan.decode_returns([&yes, &missing_order])
+                .expect_err("live order must be known"),
+            AbiDecodeError::InconsistentData(
+                "isLive returned true but orderOf returned missing order",
+            )
+        );
     }
 
     #[test]
