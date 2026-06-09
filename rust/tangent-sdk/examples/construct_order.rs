@@ -8,8 +8,8 @@
 
 use alloy_primitives::Address;
 use tangent_sdk::{
-    DomainSeparatorInput, Order, OrderBookMaintenancePlan, OrderConstraints, OrderLifecyclePlan,
-    OrderParams, OrderSignature, Side, SignedOrder, BASE_SCALE, PRICE_SCALE,
+    DomainSeparatorInput, MarketDetails, MarketReadPlan, Order, OrderBookMaintenancePlan,
+    OrderLifecyclePlan, OrderParams, OrderSignature, Side, SignedOrder, BASE_SCALE, PRICE_SCALE,
 };
 
 fn main() {
@@ -18,7 +18,19 @@ fn main() {
     // MarketRegistry.registerMarket. limitPrice is in PRICE_SCALE (1e8) units
     // ($65,000 -> 6_500_000_000_000) and size is in 1e18 base units
     // (1 BTC -> 1_000_000_000_000_000_000). nonce is per-account monotonic.
-    let btc_constraints = OrderConstraints::new(100, 1_000_000_000_000_000);
+    let btc_market = MarketDetails {
+        symbol: "BTC".to_owned(),
+        price_feed: Address::repeat_byte(0x11),
+        initial_margin_bps: 1_000,
+        maint_margin_bps: 500,
+        max_leverage: 10,
+        tick_size: 100,
+        lot_size: 1_000_000_000_000_000,
+        max_price_age: 60,
+        paused: false,
+    };
+    let btc_market_plan = MarketReadPlan::new(Address::repeat_byte(0x20), 1);
+    let btc_constraints = btc_market.order_constraints();
     let order = OrderParams {
         account_id: 7,
         market_id: 1,
@@ -31,6 +43,9 @@ fn main() {
     }
     .build(btc_constraints, 1_716_999_000)
     .expect("valid order");
+    btc_market_plan
+        .validate_order(&btc_market, &order, 1_716_999_000)
+        .expect("order matches market metadata");
 
     let constraints_accept_order = btc_constraints.accepts_price(order.limit_price)
         && btc_constraints.accepts_size(order.size);
@@ -79,6 +94,7 @@ fn main() {
     println!("  expiry      : {}", signed_order.order.expiry);
     println!("  reduceOnly  : {}", signed_order.order.reduce_only);
     println!("  constraints : {constraints_accept_order}");
+    println!("  market check: {}", btc_market.symbol);
     println!();
     println!("EIP-712 type string:");
     println!("  {}", Order::EIP712_TYPE_STRING);
