@@ -4,7 +4,8 @@ use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AbiDecodeError, DeploymentManifest, MarketRegistryCalls, OrderConstraints, UnsignedCall,
+    AbiDecodeError, DeploymentManifest, MarketRegistryCalls, Order, OrderConstraints, OrderError,
+    UnsignedCall,
 };
 
 /// Read-side Tangent market discovery calls.
@@ -33,6 +34,18 @@ impl MarketDetails {
     #[must_use]
     pub const fn order_constraints(&self) -> OrderConstraints {
         OrderConstraints::new(self.tick_size, self.lot_size)
+    }
+
+    /// Validate an order against decoded market metadata and local time.
+    ///
+    /// This performs only local preflight checks: paused-market rejection plus
+    /// the same order-field and tick/lot checks as [`Order::validate`].
+    pub fn validate_order(&self, order: &Order, current_timestamp: u64) -> Result<(), OrderError> {
+        if self.paused {
+            return Err(OrderError::Invalid("market is paused".into()));
+        }
+
+        order.validate(self.order_constraints(), current_timestamp)
     }
 }
 
@@ -295,6 +308,61 @@ mod tests {
             details.order_constraints(),
             OrderConstraints::new(100, 1_000_000_000_000_000)
         );
+        assert!(details
+            .validate_order(
+                &Order::new(
+                    7,
+                    1,
+                    true,
+                    65_000 * crate::PRICE_SCALE,
+                    crate::BASE_SCALE,
+                    1,
+                    1_717_000_000,
+                    false,
+                ),
+                1_716_999_000,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn validates_order_against_market_metadata() {
+        let plan = MarketReadPlan::new(addr(0x20), 7);
+        let details = plan
+            .decode_market_return(&encoded_market(false))
+            .expect("market decodes");
+
+        details
+            .validate_order(
+                &Order::new(
+                    7,
+                    1,
+                    true,
+                    65_000 * crate::PRICE_SCALE,
+                    crate::BASE_SCALE,
+                    1,
+                    1_717_000_000,
+                    false,
+                ),
+                1_716_999_000,
+            )
+            .expect("order validates against market metadata");
+
+        assert!(details
+            .validate_order(
+                &Order::new(
+                    7,
+                    1,
+                    true,
+                    65_000 * crate::PRICE_SCALE + 1,
+                    crate::BASE_SCALE,
+                    1,
+                    1_717_000_000,
+                    false,
+                ),
+                1_716_999_000,
+            )
+            .is_err());
     }
 
     #[test]
