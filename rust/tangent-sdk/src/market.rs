@@ -324,21 +324,24 @@ mod tests {
             details.order_constraints(),
             OrderConstraints::new(100, 1_000_000_000_000_000)
         );
-        assert!(details
-            .validate_order(
-                &Order::new(
-                    7,
-                    1,
-                    true,
-                    65_000 * crate::PRICE_SCALE,
-                    crate::BASE_SCALE,
-                    1,
-                    1_717_000_000,
-                    false,
-                ),
-                1_716_999_000,
-            )
-            .is_err());
+        assert_eq!(
+            details
+                .validate_order(
+                    &Order::new(
+                        7,
+                        1,
+                        true,
+                        65_000 * crate::PRICE_SCALE,
+                        crate::BASE_SCALE,
+                        1,
+                        1_717_000_000,
+                        false,
+                    ),
+                    1_716_999_000,
+                )
+                .expect_err("paused market rejects orders"),
+            OrderError::Invalid("market is paused".to_owned())
+        );
     }
 
     #[test]
@@ -404,8 +407,8 @@ mod tests {
         )
         .expect("order validates against plan market id");
 
-        assert!(plan
-            .validate_order(
+        assert_eq!(
+            plan.validate_order(
                 &details,
                 &Order::new(
                     7,
@@ -419,7 +422,9 @@ mod tests {
                 ),
                 1_716_999_000,
             )
-            .is_err());
+            .expect_err("wrong market id rejects order"),
+            OrderError::Invalid("order market_id does not match plan".to_owned())
+        );
     }
 
     #[test]

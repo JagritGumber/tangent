@@ -374,7 +374,7 @@ impl OrderBuilder {
 /// v0.1 surface is small; v0.8 adds variants for signer-backend errors
 /// (Circle Dev Wallet API failures, AWS KMS errors, etc.) when the
 /// signing backends land.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum OrderError {
     /// Order is missing a required field, has an invalid combination, or
     /// has expired. Specific reason in the inner message.
