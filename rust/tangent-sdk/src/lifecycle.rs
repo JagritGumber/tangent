@@ -276,6 +276,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_inconsistent_missing_order_lifecycle_return() {
+        let plan = OrderLifecyclePlan::new(Address::repeat_byte(0x20), signed_order());
+        let no = [0u8; 32];
+        let mut inconsistent_missing_order = [0u8; 288];
+        inconsistent_missing_order[31] = 7;
+
+        assert_eq!(
+            plan.decode_returns([&no, &inconsistent_missing_order])
+                .expect_err("inconsistent missing order"),
+            AbiDecodeError::InconsistentData(
+                "orderOf returned exists=false with non-zero order fields",
+            )
+        );
+    }
+
+    #[test]
     fn current_arc_manifest_has_no_orderbook_plan() {
         let manifest = DeploymentManifest::from_json(include_str!(
             "../../../docs/deployments/arc-testnet.json"
