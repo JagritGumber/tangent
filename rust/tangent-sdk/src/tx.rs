@@ -276,6 +276,10 @@ pub struct TxReceiptSummary {
     pub effective_gas_price: Option<u128>,
     pub execution_fee_paid: Option<u128>,
     pub log_count: usize,
+    #[serde(default)]
+    pub has_logs: bool,
+    #[serde(default)]
+    pub has_execution_fee_paid: bool,
     pub last_cursor: Option<RawLogCursor>,
 }
 
@@ -1702,6 +1706,7 @@ impl TxReceipt {
 
     #[must_use]
     pub fn summary(&self) -> TxReceiptSummary {
+        let execution_fee_paid = self.execution_fee_paid();
         TxReceiptSummary {
             transaction_hash: self.transaction_hash,
             mined: self.is_mined(),
@@ -1711,8 +1716,10 @@ impl TxReceipt {
             status: self.status,
             gas_used: self.gas_used,
             effective_gas_price: self.effective_gas_price,
-            execution_fee_paid: self.execution_fee_paid(),
+            execution_fee_paid,
             log_count: self.logs.len(),
+            has_logs: !self.logs.is_empty(),
+            has_execution_fee_paid: execution_fee_paid.is_some(),
             last_cursor: self.last_cursor(),
         }
     }
@@ -3047,16 +3054,27 @@ mod tests {
                 effective_gas_price: Some(2_000_000_000),
                 execution_fee_paid: Some(42_000_000_000_000),
                 log_count: 1,
+                has_logs: true,
+                has_execution_fee_paid: true,
                 last_cursor: Some(RawLogCursor::new(10, 3)),
             }
         );
         let serialized_summary = serde_json::to_string(&receipt.summary()).expect("summary json");
         assert!(serialized_summary.contains("\"execution_fee_paid\":42000000000000"));
+        assert!(serialized_summary.contains("\"has_logs\":true"));
+        assert!(serialized_summary.contains("\"has_execution_fee_paid\":true"));
         assert_eq!(
             serde_json::from_str::<TxReceiptSummary>(&serialized_summary)
                 .expect("deserialize receipt summary"),
             receipt.summary()
         );
+        let legacy_summary_json = serialized_summary
+            .replace("\"has_logs\":true,", "")
+            .replace("\"has_execution_fee_paid\":true,", "");
+        let legacy_summary: TxReceiptSummary =
+            serde_json::from_str(&legacy_summary_json).expect("legacy receipt summary");
+        assert!(!legacy_summary.has_logs);
+        assert!(!legacy_summary.has_execution_fee_paid);
         assert_eq!(
             receipt
                 .decode_logs(&filter_set)
@@ -3104,6 +3122,8 @@ mod tests {
                 effective_gas_price: None,
                 execution_fee_paid: None,
                 log_count: 0,
+                has_logs: false,
+                has_execution_fee_paid: false,
                 last_cursor: None,
             }
         );
