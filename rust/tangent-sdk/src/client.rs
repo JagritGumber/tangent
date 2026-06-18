@@ -259,6 +259,8 @@ pub struct TangentKeeperLiquidationScanResult {
 pub struct TangentKeeperLiquidationScanReport {
     pub candidate: TangentKeeperLiquidationCandidate,
     pub readiness: crate::LiquidationReadiness,
+    #[serde(default)]
+    pub has_submission: bool,
     pub submitted_transaction_hash: Option<TxHash>,
     pub submitted_transaction_report: Option<TxWorkflowSubmissionReport>,
 }
@@ -855,9 +857,11 @@ impl TangentKeeperPollingExecutionReport {
 impl TangentKeeperLiquidationScanReport {
     #[must_use]
     pub fn from_scan_result(result: &TangentKeeperLiquidationScanResult) -> Self {
+        let has_submission = result.submission.is_some();
         Self {
             candidate: result.candidate,
             readiness: result.status.readiness(),
+            has_submission,
             submitted_transaction_hash: result
                 .submission
                 .as_ref()
@@ -5217,6 +5221,7 @@ mod tests {
             vec![TangentKeeperLiquidationScanReport {
                 candidate,
                 readiness: crate::LiquidationReadiness::Ready,
+                has_submission: true,
                 submitted_transaction_hash: Some(liquidation_hash),
                 submitted_transaction_report: execution.liquidation_results[0]
                     .submission
@@ -5224,15 +5229,32 @@ mod tests {
                     .map(TxWorkflowSubmission::report),
             }]
         );
+        assert!(report.liquidation_reports[0].has_submission);
         assert_eq!(report.checkpoint.snapshot.last_tick_block, Some(130));
         assert_eq!(
             report.checkpoint.snapshot.last_liquidation_scan_block,
             Some(130)
         );
         let json = serde_json::to_string(&report).expect("report serializes");
+        assert!(json.contains("\"has_submission\":true"));
         let restored: TangentKeeperPollingExecutionReport =
             serde_json::from_str(&json).expect("report deserializes");
         assert_eq!(restored, report);
+        let mut legacy_report_json = serde_json::to_value(&report).expect("report value");
+        let legacy_report_object = legacy_report_json
+            .as_object_mut()
+            .expect("report value object");
+        let legacy_liquidation_reports = legacy_report_object
+            .get_mut("liquidation_reports")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("liquidation reports array");
+        legacy_liquidation_reports[0]
+            .as_object_mut()
+            .expect("liquidation report object")
+            .remove("has_submission");
+        let legacy_report: TangentKeeperPollingExecutionReport =
+            serde_json::from_value(legacy_report_json).expect("legacy report deserializes");
+        assert!(!legacy_report.liquidation_reports[0].has_submission);
         let summary = report.summary();
         assert_eq!(summary.checkpoint, report.checkpoint);
         assert!(summary.planned_work);
