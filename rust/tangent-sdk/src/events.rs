@@ -341,7 +341,11 @@ pub struct EventLogQueryBatchSummary {
     pub len: usize,
     pub is_empty: bool,
     pub open_ended_queries: usize,
+    #[serde(default)]
+    pub has_open_ended_queries: bool,
     pub invalid_range_queries: usize,
+    #[serde(default)]
+    pub has_invalid_range_queries: bool,
     pub total_block_span: Option<u64>,
     pub total_address_filters: usize,
     pub total_topic0_filters: usize,
@@ -381,6 +385,8 @@ pub struct EventLogRpcQueryBatchSummary {
     pub len: usize,
     pub is_empty: bool,
     pub open_ended_queries: usize,
+    #[serde(default)]
+    pub has_open_ended_queries: bool,
     pub total_address_filters: usize,
     pub total_topic0_filters: usize,
     pub queries: Vec<EventLogRpcQuerySummary>,
@@ -1211,7 +1217,9 @@ impl EventLogQuery {
             len: queries.len(),
             is_empty: queries.is_empty(),
             open_ended_queries,
+            has_open_ended_queries: open_ended_queries > 0,
             invalid_range_queries,
+            has_invalid_range_queries: invalid_range_queries > 0,
             total_block_span,
             total_address_filters,
             total_topic0_filters,
@@ -1311,6 +1319,7 @@ impl EventLogRpcQuery {
             len: queries.len(),
             is_empty: queries.is_empty(),
             open_ended_queries,
+            has_open_ended_queries: open_ended_queries > 0,
             total_address_filters,
             total_topic0_filters,
             queries,
@@ -1853,16 +1862,28 @@ mod tests {
         assert_eq!(chunk_summary.len, 3);
         assert!(!chunk_summary.is_empty);
         assert_eq!(chunk_summary.open_ended_queries, 0);
+        assert!(!chunk_summary.has_open_ended_queries);
         assert_eq!(chunk_summary.invalid_range_queries, 0);
+        assert!(!chunk_summary.has_invalid_range_queries);
         assert_eq!(chunk_summary.total_block_span, Some(101));
         assert_eq!(chunk_summary.total_address_filters, 9);
         assert_eq!(chunk_summary.total_topic0_filters, 27);
         assert_eq!(chunk_summary.queries[0].block_span, Some(50));
         let chunk_summary_json =
             serde_json::to_string(&chunk_summary).expect("serialize chunk summary");
+        assert!(chunk_summary_json.contains("\"has_open_ended_queries\":false"));
+        assert!(chunk_summary_json.contains("\"has_invalid_range_queries\":false"));
         let restored_chunk_summary: EventLogQueryBatchSummary =
             serde_json::from_str(&chunk_summary_json).expect("deserialize chunk summary");
         assert_eq!(restored_chunk_summary, chunk_summary);
+        let legacy_chunk_summary_json = chunk_summary_json
+            .replace("\"has_open_ended_queries\":false,", "")
+            .replace("\"has_invalid_range_queries\":false,", "");
+        let legacy_chunk_summary: EventLogQueryBatchSummary =
+            serde_json::from_str(&legacy_chunk_summary_json)
+                .expect("deserialize legacy chunk summary");
+        assert!(!legacy_chunk_summary.has_open_ended_queries);
+        assert!(!legacy_chunk_summary.has_invalid_range_queries);
         let rpc_chunks = query.chunked_rpc(50).expect("chunk rpc query");
         assert_eq!(rpc_chunks.len(), 3);
         assert_eq!(rpc_chunks[0].addresses, request.addresses);
@@ -1876,6 +1897,7 @@ mod tests {
         let rpc_chunk_summary = EventLogRpcQuery::summarize_batch(&rpc_chunks);
         assert_eq!(rpc_chunk_summary.len, 3);
         assert_eq!(rpc_chunk_summary.open_ended_queries, 0);
+        assert!(!rpc_chunk_summary.has_open_ended_queries);
         assert_eq!(rpc_chunk_summary.total_address_filters, 9);
         assert_eq!(rpc_chunk_summary.total_topic0_filters, 27);
         assert_eq!(
@@ -1884,9 +1906,16 @@ mod tests {
         );
         let rpc_chunk_summary_json =
             serde_json::to_string(&rpc_chunk_summary).expect("serialize rpc chunk summary");
+        assert!(rpc_chunk_summary_json.contains("\"has_open_ended_queries\":false"));
         let restored_rpc_chunk_summary: EventLogRpcQueryBatchSummary =
             serde_json::from_str(&rpc_chunk_summary_json).expect("deserialize rpc chunk summary");
         assert_eq!(restored_rpc_chunk_summary, rpc_chunk_summary);
+        let legacy_rpc_chunk_summary_json =
+            rpc_chunk_summary_json.replace("\"has_open_ended_queries\":false,", "");
+        let legacy_rpc_chunk_summary: EventLogRpcQueryBatchSummary =
+            serde_json::from_str(&legacy_rpc_chunk_summary_json)
+                .expect("deserialize legacy rpc chunk summary");
+        assert!(!legacy_rpc_chunk_summary.has_open_ended_queries);
         assert!(serde_json::to_string(&query)
             .expect("serialize")
             .contains("\"from_block\":100"));
@@ -2200,8 +2229,17 @@ mod tests {
             EventLogQuery::summarize_batch(&[open_ended_query.clone(), invalid_range_query]);
         assert_eq!(mixed_summary.len, 2);
         assert_eq!(mixed_summary.open_ended_queries, 1);
+        assert!(mixed_summary.has_open_ended_queries);
         assert_eq!(mixed_summary.invalid_range_queries, 1);
+        assert!(mixed_summary.has_invalid_range_queries);
         assert_eq!(mixed_summary.total_block_span, None);
+        let mixed_json = serde_json::to_string(&mixed_summary).expect("mixed summary json");
+        assert!(mixed_json.contains("\"has_open_ended_queries\":true"));
+        assert!(mixed_json.contains("\"has_invalid_range_queries\":true"));
+        let rpc_mixed_summary =
+            EventLogRpcQuery::summarize_batch(&[open_ended_query.to_rpc_query()]);
+        assert_eq!(rpc_mixed_summary.open_ended_queries, 1);
+        assert!(rpc_mixed_summary.has_open_ended_queries);
         assert_eq!(
             filter_set
                 .to_query(Some(100), Some(200))
