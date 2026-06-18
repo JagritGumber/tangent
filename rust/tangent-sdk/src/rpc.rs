@@ -133,6 +133,10 @@ pub struct TxConfirmationBatchSnapshot {
 pub struct TxConfirmationBatchReport {
     pub len: usize,
     pub is_empty: bool,
+    #[serde(default)]
+    pub should_continue_polling: bool,
+    #[serde(default)]
+    pub is_terminal: bool,
     pub status: TxConfirmationBatchStatus,
     pub reports: Vec<TxConfirmationSnapshotReport>,
 }
@@ -186,6 +190,8 @@ pub struct TxWorkflowBatchSubmission {
 pub struct TxWorkflowBatchSubmissionReport {
     pub len: usize,
     pub is_empty: bool,
+    #[serde(default)]
+    pub has_submissions: bool,
     pub transaction_hashes: Vec<TxHash>,
     pub plan_summary: TxSubmissionPlanBatchSummary,
     pub submissions: Vec<TxWorkflowSubmissionReport>,
@@ -538,6 +544,7 @@ impl TxWorkflowBatchSubmission {
         TxWorkflowBatchSubmissionReport {
             len: self.len(),
             is_empty: self.is_empty(),
+            has_submissions: !self.is_empty(),
             transaction_hashes: self.transaction_hashes(),
             plan_summary: TxSubmissionPlan::summarize_batch(&plans),
             submissions,
@@ -673,6 +680,8 @@ impl TxConfirmationBatchSnapshot {
         TxConfirmationBatchReport {
             len: reports.len(),
             is_empty: reports.is_empty(),
+            should_continue_polling: self.should_continue_polling(),
+            is_terminal: self.is_terminal(),
             status: self.status,
             reports,
         }
@@ -1795,6 +1804,8 @@ mod tests {
         ]);
         assert_eq!(pending_report.len, 2);
         assert!(!pending_report.is_empty);
+        assert!(pending_report.should_continue_polling);
+        assert!(!pending_report.is_terminal);
         assert_eq!(pending_report.status, pending_batch.status);
         assert_eq!(
             pending_report.reports[0].transaction_hash,
@@ -1820,9 +1831,22 @@ mod tests {
         );
         let json = serde_json::to_string(&pending_report).expect("confirmation report serializes");
         assert!(json.contains("\"receipt_summary\""));
+        assert!(json.contains("\"should_continue_polling\":true"));
+        assert!(json.contains("\"is_terminal\":false"));
         let restored: TxConfirmationBatchReport =
             serde_json::from_str(&json).expect("confirmation report deserializes");
         assert_eq!(restored, pending_report);
+        let mut legacy_batch_json =
+            serde_json::to_value(&pending_report).expect("batch report value");
+        let legacy_batch_object = legacy_batch_json
+            .as_object_mut()
+            .expect("batch report object");
+        legacy_batch_object.remove("should_continue_polling");
+        legacy_batch_object.remove("is_terminal");
+        let legacy_batch_report: TxConfirmationBatchReport =
+            serde_json::from_value(legacy_batch_json).expect("legacy batch report deserializes");
+        assert!(!legacy_batch_report.should_continue_polling);
+        assert!(!legacy_batch_report.is_terminal);
         let legacy_json = serde_json::json!({
             "transaction_hash": null,
             "current_block": 12,
@@ -1849,6 +1873,12 @@ mod tests {
             TxConfirmationBatchStatus::Confirmed { total: 1 }
         );
         assert!(confirmed_batch.is_terminal());
+        let confirmed_report = confirmed_batch.report(&[TxConfirmationPlan::new(
+            confirmed_hash,
+            TxConfirmationPolicy::new(3),
+        )]);
+        assert!(!confirmed_report.should_continue_polling);
+        assert!(confirmed_report.is_terminal);
 
         let reverted_batch = TxConfirmationBatchSnapshot::new(vec![confirmed, reverted]);
         assert_eq!(
@@ -1859,6 +1889,7 @@ mod tests {
             }
         );
         assert!(reverted_batch.is_terminal());
+        assert!(reverted_batch.report(&[]).is_terminal);
 
         let timed_out_batch = TxConfirmationBatchSnapshot::new(vec![TxConfirmationSnapshot {
             receipt: None,
@@ -1869,6 +1900,7 @@ mod tests {
             timed_out_batch.status,
             TxConfirmationBatchStatus::TimedOut { index: 0 }
         );
+        assert!(timed_out_batch.report(&[]).is_terminal);
     }
 
     #[test]
@@ -2005,6 +2037,7 @@ mod tests {
         let report = batch.report();
         assert_eq!(report.len, 2);
         assert!(!report.is_empty);
+        assert!(report.has_submissions);
         assert_eq!(report.transaction_hashes, vec![first_hash, second_hash]);
         assert_eq!(report.plan_summary.len, 2);
         assert_eq!(report.plan_summary.total_gas, Some(51_000));
@@ -2035,9 +2068,18 @@ mod tests {
         );
         let json = serde_json::to_string(&report).expect("workflow report serializes");
         assert!(json.contains("\"confirmation_plan_summary\""));
+        assert!(json.contains("\"has_submissions\":true"));
         let restored: TxWorkflowBatchSubmissionReport =
             serde_json::from_str(&json).expect("workflow report deserializes");
         assert_eq!(restored, report);
+        let mut legacy_report_json = serde_json::to_value(&report).expect("workflow report value");
+        let legacy_report_object = legacy_report_json
+            .as_object_mut()
+            .expect("workflow report object");
+        legacy_report_object.remove("has_submissions");
+        let legacy_report: TxWorkflowBatchSubmissionReport =
+            serde_json::from_value(legacy_report_json).expect("legacy workflow report");
+        assert!(!legacy_report.has_submissions);
         let partial_batch = TxWorkflowBatchSubmission::new(vec![batch.submissions[0].clone()]);
         let resume = partial_batch.resume_plan(&[first_plan.clone(), second_plan.clone()]);
         assert_eq!(resume.original_len, 2);
