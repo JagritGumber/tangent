@@ -4,8 +4,8 @@ use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AbiDecodeError, DeploymentManifest, Order, OrderBookCalls, SignedOrder, UnsignedCall,
-    UnsignedTx,
+    AbiDecodeError, CallReturnBatch, DeploymentManifest, Order, OrderBookCalls, SignedOrder,
+    UnsignedCall, UnsignedCallBatchSummary, UnsignedCallSummary, UnsignedTx,
 };
 
 /// Permissionless OrderBook maintenance calls.
@@ -46,6 +46,16 @@ pub struct OrderLifecyclePlan {
     pub signed_order: SignedOrder,
 }
 
+/// Compact review shape for submit/cancel/read planning around one signed order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderLifecyclePlanSummary {
+    pub order_book: Address,
+    pub order_hash: alloy_primitives::B256,
+    pub submit_transaction: UnsignedCallSummary,
+    pub cancel_transaction: UnsignedCallSummary,
+    pub read_summary: UnsignedCallBatchSummary,
+}
+
 /// Decoded order lifecycle reads.
 ///
 /// `is_live` is the current live predicate. `stored_order` is present when
@@ -56,11 +66,55 @@ pub struct OrderLifecycleStatus {
     pub stored_order: Option<Order>,
 }
 
+/// Local classification for decoded order lifecycle reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OrderLifecycleState {
+    /// The book knows the order and `isLive(orderHash)` is true.
+    Live,
+    /// The book knows the order, but it is no longer live.
+    NotLive,
+    /// The book does not know the order hash.
+    Unknown,
+}
+
+/// Compact review shape for decoded lifecycle status and the next cancel action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderLifecycleSummary {
+    pub order_book: Address,
+    pub order_hash: alloy_primitives::B256,
+    pub state: OrderLifecycleState,
+    pub is_live: bool,
+    pub is_known: bool,
+    pub can_cancel: bool,
+    pub stored_order: Option<Order>,
+    pub read_summary: UnsignedCallBatchSummary,
+    #[serde(default)]
+    pub has_cancel_transaction: bool,
+    pub cancel_transaction: Option<UnsignedCallSummary>,
+}
+
 impl OrderLifecycleStatus {
     /// True when `orderOf(orderHash)` reported that the order exists.
     #[must_use]
     pub fn is_known(&self) -> bool {
         self.stored_order.is_some()
+    }
+
+    /// Classify the decoded order state from `isLive` and `orderOf`.
+    #[must_use]
+    pub fn state(&self) -> OrderLifecycleState {
+        match (self.is_live, self.stored_order.is_some()) {
+            (true, true) => OrderLifecycleState::Live,
+            (false, true) => OrderLifecycleState::NotLive,
+            (false, false) => OrderLifecycleState::Unknown,
+            (true, false) => OrderLifecycleState::Unknown,
+        }
+    }
+
+    /// True when this order can still be cancelled according to decoded reads.
+    #[must_use]
+    pub fn can_cancel(&self) -> bool {
+        self.state() == OrderLifecycleState::Live
     }
 }
 
@@ -123,6 +177,40 @@ impl OrderLifecyclePlan {
         [self.is_live_call(), self.order_of_call()]
     }
 
+    #[must_use]
+    pub fn read_summary(&self) -> UnsignedCallBatchSummary {
+        let calls = self.calls();
+        UnsignedCall::summarize_batch(&calls)
+    }
+
+    #[must_use]
+    pub fn summary(&self) -> OrderLifecyclePlanSummary {
+        OrderLifecyclePlanSummary {
+            order_book: self.order_book,
+            order_hash: self.order_hash(),
+            submit_transaction: self.submit_tx().summary(),
+            cancel_transaction: self.cancel_tx().summary(),
+            read_summary: self.read_summary(),
+        }
+    }
+
+    #[must_use]
+    pub fn status_summary(&self, status: &OrderLifecycleStatus) -> OrderLifecycleSummary {
+        let cancel_transaction = status.can_cancel().then(|| self.cancel_tx().summary());
+        OrderLifecycleSummary {
+            order_book: self.order_book,
+            order_hash: self.order_hash(),
+            state: status.state(),
+            is_live: status.is_live,
+            is_known: status.is_known(),
+            can_cancel: status.can_cancel(),
+            stored_order: status.stored_order.clone(),
+            read_summary: self.read_summary(),
+            has_cancel_transaction: cancel_transaction.is_some(),
+            cancel_transaction,
+        }
+    }
+
     pub fn decode_is_live_return(
         &self,
         is_live_return: &[u8],
@@ -164,6 +252,23 @@ impl OrderLifecyclePlan {
             is_live,
             stored_order,
         })
+    }
+
+    /// Decode a transport-returned batch from [`Self::calls`].
+    pub fn decode_return_slices<T: AsRef<[u8]>>(
+        &self,
+        returns: &[T],
+    ) -> Result<OrderLifecycleStatus, AbiDecodeError> {
+        let returns = crate::abi::expect_return_count(returns, 2)?;
+        self.decode_returns([returns[0], returns[1]])
+    }
+
+    /// Decode an ordered transport-returned batch from [`Self::calls`].
+    pub fn decode_return_batch(
+        &self,
+        returns: &CallReturnBatch,
+    ) -> Result<OrderLifecycleStatus, AbiDecodeError> {
+        self.decode_return_slices(returns.as_returns())
     }
 }
 
@@ -219,6 +324,16 @@ mod tests {
         assert_eq!(&order_of.data[4..36], order_hash.as_slice());
 
         assert_eq!(plan.calls(), [is_live, order_of]);
+        let summary = plan.summary();
+        assert_eq!(summary.order_book, Address::repeat_byte(0x20));
+        assert_eq!(summary.order_hash, order_hash);
+        assert_eq!(summary.submit_transaction.to, Address::repeat_byte(0x20));
+        assert_eq!(summary.cancel_transaction.to, Address::repeat_byte(0x20));
+        assert_eq!(summary.read_summary.len, 2);
+        let json = serde_json::to_string(&summary).expect("summary serializes");
+        let restored: OrderLifecyclePlanSummary =
+            serde_json::from_str(&json).expect("summary deserializes");
+        assert_eq!(restored, summary);
     }
 
     #[test]
@@ -253,6 +368,20 @@ mod tests {
         let decoded = plan
             .decode_returns([&yes, &order_return])
             .expect("status decodes");
+        assert_eq!(
+            plan.decode_return_slices(&[yes.to_vec(), order_return.clone()])
+                .expect("status decodes from slices"),
+            decoded
+        );
+        let batch = CallReturnBatch::new(vec![
+            crate::CallReturn::new(yes.to_vec()),
+            crate::CallReturn::new(order_return.clone()),
+        ]);
+        assert_eq!(
+            plan.decode_return_batch(&batch)
+                .expect("status decodes from batch"),
+            decoded
+        );
 
         assert_eq!(
             decoded,
@@ -262,6 +391,36 @@ mod tests {
             }
         );
         assert!(decoded.is_known());
+        assert_eq!(decoded.state(), OrderLifecycleState::Live);
+        assert!(decoded.can_cancel());
+        let summary = plan.status_summary(&decoded);
+        assert_eq!(summary.order_book, Address::repeat_byte(0x20));
+        assert_eq!(summary.order_hash, plan.order_hash());
+        assert_eq!(summary.state, OrderLifecycleState::Live);
+        assert!(summary.is_live);
+        assert!(summary.is_known);
+        assert!(summary.can_cancel);
+        assert_eq!(summary.stored_order, decoded.stored_order);
+        assert_eq!(summary.read_summary.len, 2);
+        assert!(summary.has_cancel_transaction);
+        assert_eq!(
+            summary
+                .cancel_transaction
+                .as_ref()
+                .expect("cancel summary")
+                .to,
+            Address::repeat_byte(0x20)
+        );
+        let json = serde_json::to_string(&summary).expect("status summary serializes");
+        let restored: OrderLifecycleSummary =
+            serde_json::from_str(&json).expect("status summary deserializes");
+        assert_eq!(restored, summary);
+        let mut legacy_json = serde_json::to_value(&summary).expect("status summary value");
+        let legacy_object = legacy_json.as_object_mut().expect("status summary object");
+        legacy_object.remove("has_cancel_transaction");
+        let legacy: OrderLifecycleSummary =
+            serde_json::from_value(legacy_json).expect("legacy status summary");
+        assert!(!legacy.has_cancel_transaction);
     }
 
     #[test]
@@ -282,6 +441,38 @@ mod tests {
             }
         );
         assert!(!decoded.is_known());
+        assert_eq!(decoded.state(), OrderLifecycleState::Unknown);
+        assert!(!decoded.can_cancel());
+        let summary = plan.status_summary(&decoded);
+        assert_eq!(summary.state, OrderLifecycleState::Unknown);
+        assert!(!summary.is_known);
+        assert!(!summary.has_cancel_transaction);
+        assert_eq!(summary.cancel_transaction, None);
+    }
+
+    #[test]
+    fn classifies_known_not_live_order_lifecycle_return() {
+        let plan = OrderLifecyclePlan::new(Address::repeat_byte(0x20), signed_order());
+        let no = [0u8; 32];
+        let mut order_return = Vec::new();
+        for word in [7u8, 1, 1, 9, 8, 6, 5, 0, 1] {
+            let mut encoded = [0u8; 32];
+            encoded[31] = word;
+            order_return.extend_from_slice(&encoded);
+        }
+
+        let decoded = plan
+            .decode_returns([&no, &order_return])
+            .expect("status decodes");
+
+        assert!(decoded.is_known());
+        assert_eq!(decoded.state(), OrderLifecycleState::NotLive);
+        assert!(!decoded.can_cancel());
+        let summary = plan.status_summary(&decoded);
+        assert_eq!(summary.state, OrderLifecycleState::NotLive);
+        assert!(summary.is_known);
+        assert!(!summary.has_cancel_transaction);
+        assert_eq!(summary.cancel_transaction, None);
     }
 
     #[test]

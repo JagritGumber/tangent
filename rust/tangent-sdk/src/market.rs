@@ -4,8 +4,8 @@ use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AbiDecodeError, DeploymentManifest, MarketRegistryCalls, Order, OrderConstraints, OrderError,
-    UnsignedCall,
+    AbiDecodeError, CallReturnBatch, DeploymentManifest, MarketRegistryCalls, Order,
+    OrderConstraints, OrderError, UnsignedCall, UnsignedCallBatchSummary,
 };
 
 /// Read-side Tangent market discovery calls.
@@ -13,6 +13,14 @@ use crate::{
 pub struct MarketReadPlan {
     pub market_registry: Address,
     pub market_id: u128,
+}
+
+/// Compact review shape for market registry read planning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketReadPlanSummary {
+    pub market_registry: Address,
+    pub market_id: u128,
+    pub read_summary: UnsignedCallBatchSummary,
 }
 
 /// Decoded `MarketRegistry.market(marketId)` metadata.
@@ -30,6 +38,12 @@ pub struct MarketDetails {
 }
 
 impl MarketDetails {
+    /// True when the decoded market metadata allows new order submission.
+    #[must_use]
+    pub const fn accepts_orders(&self) -> bool {
+        !self.paused
+    }
+
     /// Build order validation constraints from decoded market metadata.
     #[must_use]
     pub const fn order_constraints(&self) -> OrderConstraints {
@@ -57,6 +71,25 @@ pub struct MarketReadSummary {
     pub market: Option<MarketDetails>,
 }
 
+/// Compact review shape for decoded market reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarketStatusSummary {
+    pub market_registry: Address,
+    pub market_id: u128,
+    pub total_markets: u128,
+    pub mark_price: u128,
+    #[serde(default)]
+    pub has_mark_price: bool,
+    pub has_market_metadata: bool,
+    pub is_known_market: bool,
+    pub is_tradable_market: bool,
+    #[serde(default)]
+    pub has_order_constraints: bool,
+    pub order_constraints: Option<OrderConstraints>,
+    pub market: Option<MarketDetails>,
+    pub read_summary: UnsignedCallBatchSummary,
+}
+
 impl MarketReadSummary {
     /// True when `market_id` is non-zero and within decoded `total_markets`.
     ///
@@ -71,6 +104,17 @@ impl MarketReadSummary {
     #[must_use]
     pub fn order_constraints(&self) -> Option<OrderConstraints> {
         self.market.as_ref().map(MarketDetails::order_constraints)
+    }
+
+    /// True when decoded reads describe a registered, unpaused, priced market.
+    #[must_use]
+    pub fn is_tradable_market(&self, market_id: u128) -> bool {
+        self.includes_market_id(market_id)
+            && self.mark_price != 0
+            && self
+                .market
+                .as_ref()
+                .is_some_and(MarketDetails::accepts_orders)
     }
 }
 
@@ -119,6 +163,39 @@ impl MarketReadPlan {
             self.market_call(),
             self.mark_price_call(),
         ]
+    }
+
+    #[must_use]
+    pub fn read_summary(&self) -> UnsignedCallBatchSummary {
+        let calls = self.calls();
+        UnsignedCall::summarize_batch(&calls)
+    }
+
+    #[must_use]
+    pub fn summary(&self) -> MarketReadPlanSummary {
+        MarketReadPlanSummary {
+            market_registry: self.market_registry,
+            market_id: self.market_id,
+            read_summary: self.read_summary(),
+        }
+    }
+
+    #[must_use]
+    pub fn status_summary(&self, summary: &MarketReadSummary) -> MarketStatusSummary {
+        MarketStatusSummary {
+            market_registry: self.market_registry,
+            market_id: self.market_id,
+            total_markets: summary.total_markets,
+            mark_price: summary.mark_price,
+            has_mark_price: summary.mark_price != 0,
+            has_market_metadata: summary.market.is_some(),
+            is_known_market: self.is_known_market(summary),
+            is_tradable_market: self.is_tradable_market(summary),
+            has_order_constraints: summary.order_constraints().is_some(),
+            order_constraints: summary.order_constraints(),
+            market: summary.market.clone(),
+            read_summary: self.read_summary(),
+        }
     }
 
     pub fn decode_summary_returns(
@@ -178,6 +255,45 @@ impl MarketReadPlan {
         market.validate_order(order, current_timestamp)
     }
 
+    /// Validate an order against this plan and a decoded market read summary.
+    ///
+    /// This is the SDK's local submit preflight for callers that used
+    /// [`Self::calls`] and [`Self::decode_returns`]. It verifies the plan's
+    /// market id is registered, metadata was decoded, the mark price read was
+    /// non-zero, and the order passes market metadata validation.
+    pub fn validate_order_with_summary(
+        &self,
+        summary: &MarketReadSummary,
+        order: &Order,
+        current_timestamp: u64,
+    ) -> Result<(), OrderError> {
+        if !self.is_known_market(summary) {
+            return Err(OrderError::Invalid("market_id is not registered".into()));
+        }
+        if summary.mark_price == 0 {
+            return Err(OrderError::Invalid("mark_price must be non-zero".into()));
+        }
+
+        let market = summary
+            .market
+            .as_ref()
+            .ok_or_else(|| OrderError::Invalid("market metadata is missing".into()))?;
+
+        self.validate_order(market, order, current_timestamp)
+    }
+
+    /// True when decoded summary totals include this plan's `market_id`.
+    #[must_use]
+    pub const fn is_known_market(&self, summary: &MarketReadSummary) -> bool {
+        summary.includes_market_id(self.market_id)
+    }
+
+    /// True when decoded reads describe this plan's market as locally tradable.
+    #[must_use]
+    pub fn is_tradable_market(&self, summary: &MarketReadSummary) -> bool {
+        summary.is_tradable_market(self.market_id)
+    }
+
     /// Decode returns from [`Self::calls`] in the same fixed order.
     pub fn decode_returns(&self, returns: [&[u8]; 3]) -> Result<MarketReadSummary, AbiDecodeError> {
         Ok(MarketReadSummary {
@@ -185,6 +301,23 @@ impl MarketReadPlan {
             market: Some(self.decode_market_return(returns[1])?),
             mark_price: MarketRegistryCalls::decode_mark_price_return(returns[2])?,
         })
+    }
+
+    /// Decode a transport-returned batch from [`Self::calls`].
+    pub fn decode_return_slices<T: AsRef<[u8]>>(
+        &self,
+        returns: &[T],
+    ) -> Result<MarketReadSummary, AbiDecodeError> {
+        let returns = crate::abi::expect_return_count(returns, 3)?;
+        self.decode_returns([returns[0], returns[1], returns[2]])
+    }
+
+    /// Decode an ordered transport-returned batch from [`Self::calls`].
+    pub fn decode_return_batch(
+        &self,
+        returns: &CallReturnBatch,
+    ) -> Result<MarketReadSummary, AbiDecodeError> {
+        self.decode_return_slices(returns.as_returns())
     }
 }
 
@@ -217,6 +350,16 @@ mod tests {
             &MarketRegistryCalls::mark_price_selector()
         );
         assert_eq!(hex::encode(&mark_price.data[4..36]), format!("{:064x}", 7));
+
+        let summary = plan.summary();
+        assert_eq!(summary.market_registry, addr(0x20));
+        assert_eq!(summary.market_id, 7);
+        assert_eq!(summary.read_summary.len, 3);
+        assert_eq!(summary.read_summary.unique_contracts, 1);
+        let json = serde_json::to_string(&summary).expect("summary serializes");
+        let restored: MarketReadPlanSummary =
+            serde_json::from_str(&json).expect("summary deserializes");
+        assert_eq!(restored, summary);
     }
 
     #[test]
@@ -269,6 +412,8 @@ mod tests {
         assert!(!decoded.includes_market_id(0));
         assert!(!decoded.includes_market_id(3));
         assert_eq!(decoded.order_constraints(), None);
+        assert!(!plan.is_known_market(&decoded));
+        assert!(MarketReadPlan::new(addr(0x20), 2).is_known_market(&decoded));
     }
 
     #[test]
@@ -287,6 +432,29 @@ mod tests {
         let decoded = plan
             .decode_returns([&total, &market, &mark])
             .expect("summary decodes");
+        assert_eq!(
+            plan.decode_return_slices(&[total.to_vec(), market.clone(), mark.to_vec()])
+                .expect("summary decodes from slices"),
+            decoded
+        );
+        let batch = CallReturnBatch::new(vec![
+            crate::CallReturn::new(total.to_vec()),
+            crate::CallReturn::new(market.clone()),
+            crate::CallReturn::new(mark.to_vec()),
+        ]);
+        assert_eq!(
+            plan.decode_return_batch(&batch)
+                .expect("summary decodes from batch"),
+            decoded
+        );
+        assert_eq!(
+            plan.decode_return_slices(&[total.to_vec(), market])
+                .expect_err("wrong return count"),
+            AbiDecodeError::InvalidLength {
+                expected: 3,
+                actual: 2,
+            }
+        );
 
         assert_eq!(
             decoded,
@@ -311,6 +479,37 @@ mod tests {
             Some(OrderConstraints::new(100, 1_000_000_000_000_000))
         );
         assert!(!decoded.includes_market_id(7));
+        assert!(!plan.is_known_market(&decoded));
+        assert!(!decoded.is_tradable_market(7));
+        assert!(!plan.is_tradable_market(&decoded));
+        let status_summary = plan.status_summary(&decoded);
+        assert_eq!(status_summary.market_registry, addr(0x20));
+        assert_eq!(status_summary.market_id, 7);
+        assert_eq!(status_summary.total_markets, 2);
+        assert_eq!(status_summary.mark_price, 9);
+        assert!(status_summary.has_mark_price);
+        assert!(status_summary.has_market_metadata);
+        assert!(!status_summary.is_known_market);
+        assert!(!status_summary.is_tradable_market);
+        assert!(status_summary.has_order_constraints);
+        assert_eq!(
+            status_summary.order_constraints,
+            Some(OrderConstraints::new(100, 1_000_000_000_000_000))
+        );
+        assert_eq!(status_summary.market, decoded.market);
+        assert_eq!(status_summary.read_summary.len, 3);
+        let json = serde_json::to_string(&status_summary).expect("status summary serializes");
+        let restored: MarketStatusSummary =
+            serde_json::from_str(&json).expect("status summary deserializes");
+        assert_eq!(restored, status_summary);
+        let mut legacy_json = serde_json::to_value(&status_summary).expect("status summary value");
+        let legacy_object = legacy_json.as_object_mut().expect("status summary object");
+        legacy_object.remove("has_mark_price");
+        legacy_object.remove("has_order_constraints");
+        let legacy: MarketStatusSummary =
+            serde_json::from_value(legacy_json).expect("legacy status summary");
+        assert!(!legacy.has_mark_price);
+        assert!(!legacy.has_order_constraints);
     }
 
     #[test]
@@ -338,6 +537,7 @@ mod tests {
             details.order_constraints(),
             OrderConstraints::new(100, 1_000_000_000_000_000)
         );
+        assert!(!details.accepts_orders());
         assert_eq!(
             details
                 .validate_order(
@@ -364,6 +564,7 @@ mod tests {
         let details = plan
             .decode_market_return(&encoded_market(false))
             .expect("market decodes");
+        assert!(details.accepts_orders());
 
         details
             .validate_order(
@@ -404,6 +605,11 @@ mod tests {
         let details = plan
             .decode_market_return(&encoded_market(false))
             .expect("market decodes");
+        let summary = MarketReadSummary {
+            total_markets: 7,
+            mark_price: 65_000 * crate::PRICE_SCALE,
+            market: Some(details.clone()),
+        };
 
         plan.validate_order(
             &details,
@@ -420,6 +626,21 @@ mod tests {
             1_716_999_000,
         )
         .expect("order validates against plan market id");
+        plan.validate_order_with_summary(
+            &summary,
+            &Order::new(
+                7,
+                7,
+                true,
+                65_000 * crate::PRICE_SCALE,
+                crate::BASE_SCALE,
+                1,
+                1_717_000_000,
+                false,
+            ),
+            1_716_999_000,
+        )
+        .expect("order validates against decoded market summary");
 
         assert_eq!(
             plan.validate_order(
@@ -438,6 +659,69 @@ mod tests {
             )
             .expect_err("wrong market id rejects order"),
             OrderError::Invalid("order market_id does not match plan".to_owned())
+        );
+        assert_eq!(
+            plan.validate_order_with_summary(
+                &MarketReadSummary {
+                    total_markets: 6,
+                    ..summary.clone()
+                },
+                &Order::new(
+                    7,
+                    7,
+                    true,
+                    65_000 * crate::PRICE_SCALE,
+                    crate::BASE_SCALE,
+                    1,
+                    1_717_000_000,
+                    false,
+                ),
+                1_716_999_000,
+            )
+            .expect_err("unknown market rejects order"),
+            OrderError::Invalid("market_id is not registered".to_owned())
+        );
+        assert_eq!(
+            plan.validate_order_with_summary(
+                &MarketReadSummary {
+                    mark_price: 0,
+                    ..summary.clone()
+                },
+                &Order::new(
+                    7,
+                    7,
+                    true,
+                    65_000 * crate::PRICE_SCALE,
+                    crate::BASE_SCALE,
+                    1,
+                    1_717_000_000,
+                    false,
+                ),
+                1_716_999_000,
+            )
+            .expect_err("zero mark price rejects order"),
+            OrderError::Invalid("mark_price must be non-zero".to_owned())
+        );
+        assert_eq!(
+            plan.validate_order_with_summary(
+                &MarketReadSummary {
+                    market: None,
+                    ..summary
+                },
+                &Order::new(
+                    7,
+                    7,
+                    true,
+                    65_000 * crate::PRICE_SCALE,
+                    crate::BASE_SCALE,
+                    1,
+                    1_717_000_000,
+                    false,
+                ),
+                1_716_999_000,
+            )
+            .expect_err("missing metadata rejects order"),
+            OrderError::Invalid("market metadata is missing".to_owned())
         );
     }
 
@@ -531,6 +815,68 @@ mod tests {
                 AbiDecodeError::UintOverflow,
             );
         }
+    }
+
+    #[test]
+    fn classifies_tradable_market_reads() {
+        let plan = MarketReadPlan::new(addr(0x20), 2);
+        let tradable = MarketReadSummary {
+            total_markets: 2,
+            mark_price: 65_000 * crate::PRICE_SCALE,
+            market: Some(MarketDetails {
+                symbol: "BTC".to_owned(),
+                price_feed: addr(0x11),
+                initial_margin_bps: 1_000,
+                maint_margin_bps: 500,
+                max_leverage: 10,
+                tick_size: 100,
+                lot_size: 1_000_000_000_000_000,
+                max_price_age: 60,
+                paused: false,
+            }),
+        };
+
+        assert!(tradable.is_tradable_market(2));
+        assert!(plan.is_tradable_market(&tradable));
+        let summary = plan.status_summary(&tradable);
+        assert!(summary.is_known_market);
+        assert!(summary.is_tradable_market);
+        assert!(summary.has_mark_price);
+        assert!(summary.has_market_metadata);
+        assert!(summary.has_order_constraints);
+        assert_eq!(
+            summary.order_constraints,
+            Some(OrderConstraints::new(100, 1_000_000_000_000_000))
+        );
+
+        let zero_mark = MarketReadSummary {
+            mark_price: 0,
+            ..tradable.clone()
+        };
+        assert!(!zero_mark.is_tradable_market(2));
+        let zero_mark_summary = plan.status_summary(&zero_mark);
+        assert!(!zero_mark_summary.has_mark_price);
+        assert!(zero_mark_summary.has_order_constraints);
+        assert!(!zero_mark_summary.is_tradable_market);
+        assert!(!MarketReadSummary {
+            total_markets: 1,
+            ..tradable.clone()
+        }
+        .is_tradable_market(2));
+        let paused = MarketReadSummary {
+            market: Some(MarketDetails {
+                paused: true,
+                ..tradable.market.clone().expect("market details")
+            }),
+            ..tradable.clone()
+        };
+        assert!(!paused.is_tradable_market(2));
+        let missing_metadata_summary = plan.status_summary(&MarketReadSummary {
+            market: None,
+            ..tradable
+        });
+        assert!(!missing_metadata_summary.has_order_constraints);
+        assert!(!missing_metadata_summary.has_market_metadata);
     }
 
     fn encoded_market(paused: bool) -> Vec<u8> {

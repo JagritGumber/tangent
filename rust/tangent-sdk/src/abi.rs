@@ -44,6 +44,20 @@ pub(crate) fn decode_empty(data: &[u8]) -> Result<(), AbiDecodeError> {
     }
 }
 
+pub(crate) fn expect_return_count<T: AsRef<[u8]>>(
+    returns: &[T],
+    expected: usize,
+) -> Result<Vec<&[u8]>, AbiDecodeError> {
+    if returns.len() != expected {
+        return Err(AbiDecodeError::InvalidLength {
+            expected,
+            actual: returns.len(),
+        });
+    }
+
+    Ok(returns.iter().map(AsRef::as_ref).collect())
+}
+
 pub(crate) fn decode_u128(data: &[u8]) -> Result<u128, AbiDecodeError> {
     let word = single_word(data)?;
     if word[..16].iter().any(|byte| *byte != 0) {
@@ -89,6 +103,70 @@ pub(crate) fn decode_address(data: &[u8]) -> Result<Address, AbiDecodeError> {
     Ok(Address::from_slice(&word[12..]))
 }
 
+pub(crate) fn decode_dynamic_string(
+    data: &[u8],
+    head_index: usize,
+    head_words: usize,
+) -> Result<String, AbiDecodeError> {
+    let head_len = head_words
+        .checked_mul(32)
+        .ok_or(AbiDecodeError::UintOverflow)?;
+    if data.len() < head_len {
+        return Err(AbiDecodeError::InvalidLength {
+            expected: head_len,
+            actual: data.len(),
+        });
+    }
+
+    let offset_start = head_index
+        .checked_mul(32)
+        .ok_or(AbiDecodeError::UintOverflow)?;
+    let offset_end = offset_start
+        .checked_add(32)
+        .ok_or(AbiDecodeError::UintOverflow)?;
+    if offset_end > head_len {
+        return Err(AbiDecodeError::InvalidOffset(offset_start));
+    }
+
+    let offset = usize::try_from(decode_u128(&data[offset_start..offset_end])?)
+        .map_err(|_| AbiDecodeError::UintOverflow)?;
+    if offset < head_len || offset % 32 != 0 {
+        return Err(AbiDecodeError::InvalidOffset(offset));
+    }
+
+    let len_end = offset.checked_add(32).ok_or(AbiDecodeError::UintOverflow)?;
+    if data.len() < len_end {
+        return Err(AbiDecodeError::InvalidLength {
+            expected: len_end,
+            actual: data.len(),
+        });
+    }
+
+    let string_len = usize::try_from(decode_u128(&data[offset..len_end])?)
+        .map_err(|_| AbiDecodeError::UintOverflow)?;
+    let string_end = len_end
+        .checked_add(string_len)
+        .ok_or(AbiDecodeError::UintOverflow)?;
+    let padded_len = string_len
+        .checked_add(31)
+        .ok_or(AbiDecodeError::UintOverflow)?
+        / 32
+        * 32;
+    let padded_end = len_end
+        .checked_add(padded_len)
+        .ok_or(AbiDecodeError::UintOverflow)?;
+    if data.len() != padded_end {
+        return Err(AbiDecodeError::InvalidLength {
+            expected: padded_end,
+            actual: data.len(),
+        });
+    }
+
+    std::str::from_utf8(&data[len_end..string_end])
+        .map(str::to_owned)
+        .map_err(|_| AbiDecodeError::InvalidStringUtf8)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +174,12 @@ mod tests {
     fn word_with_last(value: u8) -> [u8; 32] {
         let mut word = [0u8; 32];
         word[31] = value;
+        word
+    }
+
+    fn word_u128(value: u128) -> [u8; 32] {
+        let mut word = [0u8; 32];
+        word[16..].copy_from_slice(&value.to_be_bytes());
         word
     }
 
@@ -111,6 +195,18 @@ mod tests {
         assert_eq!(
             decode_address(&address_word).expect("address"),
             Address::repeat_byte(0x11)
+        );
+
+        let mut string_data = Vec::new();
+        string_data.extend_from_slice(&word_u128(64));
+        string_data.extend_from_slice(&address_word);
+        string_data.extend_from_slice(&word_u128(3));
+        let mut symbol = [0u8; 32];
+        symbol[..3].copy_from_slice(b"BTC");
+        string_data.extend_from_slice(&symbol);
+        assert_eq!(
+            decode_dynamic_string(&string_data, 0, 2).expect("string"),
+            "BTC"
         );
     }
 
@@ -139,6 +235,17 @@ mod tests {
                 actual: 1,
             }
         );
+        assert_eq!(
+            expect_return_count(&[[0u8; 32]], 2).expect_err("bad return count"),
+            AbiDecodeError::InvalidLength {
+                expected: 2,
+                actual: 1,
+            }
+        );
+        assert_eq!(
+            expect_return_count(&[[0u8; 32], [1u8; 32]], 2).expect("count matches"),
+            vec![[0u8; 32].as_slice(), [1u8; 32].as_slice()]
+        );
 
         let overflow = [1u8; 32];
         assert_eq!(
@@ -159,6 +266,14 @@ mod tests {
         assert_eq!(
             decode_address(&bad_address).expect_err("bad address"),
             AbiDecodeError::InvalidAddressPadding
+        );
+
+        let mut bad_offset = Vec::new();
+        bad_offset.extend_from_slice(&word_with_last(32));
+        bad_offset.extend_from_slice(&[0u8; 32]);
+        assert_eq!(
+            decode_dynamic_string(&bad_offset, 0, 2).expect_err("bad offset"),
+            AbiDecodeError::InvalidOffset(32)
         );
     }
 }
