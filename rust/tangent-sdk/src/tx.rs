@@ -72,8 +72,12 @@ pub struct UnsignedCallContractSummary {
 pub struct UnsignedCallBatchSummary {
     pub len: usize,
     pub is_empty: bool,
+    #[serde(default)]
+    pub has_calls: bool,
     pub total_calldata_bytes: usize,
     pub unique_contracts: usize,
+    #[serde(default)]
+    pub has_multiple_contracts: bool,
     pub contracts: Vec<UnsignedCallContractSummary>,
     pub calls: Vec<UnsignedCallSummary>,
 }
@@ -1314,8 +1318,10 @@ impl UnsignedCallBatchSummary {
         Self {
             len: call_summaries.len(),
             is_empty: call_summaries.is_empty(),
+            has_calls: !call_summaries.is_empty(),
             total_calldata_bytes,
             unique_contracts: contracts.len(),
+            has_multiple_contracts: contracts.len() > 1,
             contracts,
             calls: call_summaries,
         }
@@ -2134,16 +2140,33 @@ mod tests {
         let batch = UnsignedCall::summarize_batch([&call, &other_call]);
         assert_eq!(batch.len, 2);
         assert!(!batch.is_empty);
+        assert!(batch.has_calls);
         assert_eq!(batch.total_calldata_bytes, 7);
         assert_eq!(batch.unique_contracts, 2);
+        assert!(batch.has_multiple_contracts);
         assert_eq!(batch.contracts[0].calls, 1);
         assert_eq!(batch.contracts[1].calls, 1);
         assert_eq!(batch.calls[0].selector.as_deref(), Some("0x12345678"));
         assert_eq!(batch.calls[1].selector, None);
         let json = serde_json::to_string(&batch).expect("call batch summary serializes");
+        assert!(json.contains("\"has_calls\":true"));
+        assert!(json.contains("\"has_multiple_contracts\":true"));
         let restored: UnsignedCallBatchSummary =
             serde_json::from_str(&json).expect("call batch summary deserializes");
         assert_eq!(restored, batch);
+        let legacy_json = json
+            .replace("\"has_calls\":true,", "")
+            .replace("\"has_multiple_contracts\":true,", "");
+        let legacy: UnsignedCallBatchSummary =
+            serde_json::from_str(&legacy_json).expect("legacy call batch summary deserializes");
+        assert!(!legacy.has_calls);
+        assert!(!legacy.has_multiple_contracts);
+        let empty_batch = UnsignedCall::summarize_batch(std::iter::empty::<&UnsignedCall>());
+        assert_eq!(empty_batch.len, 0);
+        assert!(empty_batch.is_empty);
+        assert!(!empty_batch.has_calls);
+        assert_eq!(empty_batch.unique_contracts, 0);
+        assert!(!empty_batch.has_multiple_contracts);
         assert!(matches!(
             UnsignedCall::from_hex_data(Address::ZERO, "0x123").expect_err("bad calldata"),
             CallDataError::InvalidHex(_)
