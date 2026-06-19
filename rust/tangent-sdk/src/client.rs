@@ -73,7 +73,11 @@ pub struct TangentClientConfigReport {
     pub endpoint: RpcEndpointConfigReport,
     pub policies: TangentClientPolicies,
     pub signer_backend_count: usize,
+    #[serde(default)]
+    pub has_signer_backends: bool,
     pub signer_backend_kinds: Vec<SignerBackendKind>,
+    #[serde(default)]
+    pub has_multiple_signer_backend_kinds: bool,
     pub signer_backends: Vec<SignerBackendConfigReport>,
 }
 
@@ -133,7 +137,11 @@ pub struct TangentClientStartupReport {
     #[serde(default)]
     pub has_static_rpc_auth_header: bool,
     pub signer_backend_count: usize,
+    #[serde(default)]
+    pub has_signer_backends: bool,
     pub signer_backend_kinds: Vec<SignerBackendKind>,
+    #[serde(default)]
+    pub has_multiple_signer_backend_kinds: bool,
     pub perp_stack: PerpStackAvailability,
     pub missing_perp_contracts: Vec<String>,
     pub keeper_capabilities: Vec<KeeperCapability>,
@@ -1285,6 +1293,8 @@ impl TangentClientConfig {
             endpoint: self.endpoint.report(),
             policies: self.policies,
             signer_backend_count: self.signer_backends.len(),
+            has_signer_backends: !self.signer_backends.is_empty(),
+            has_multiple_signer_backend_kinds: signer_backend_kinds.len() > 1,
             signer_backend_kinds,
             signer_backends: self
                 .signer_backends
@@ -1479,6 +1489,8 @@ impl TangentClientPlan {
             static_rpc_auth_headers: endpoint_report.static_rpc_auth_headers,
             has_static_rpc_auth_header: endpoint_report.has_static_rpc_auth_header,
             signer_backend_count: self.config.signer_backends.len(),
+            has_signer_backends: !self.config.signer_backends.is_empty(),
+            has_multiple_signer_backend_kinds: signer_backend_kinds.len() > 1,
             signer_backend_kinds,
             perp_stack,
             missing_perp_contracts: perp_stack
@@ -3043,6 +3055,10 @@ mod tests {
         assert_eq!(current_report.static_rpc_headers, 0);
         assert_eq!(current_report.static_rpc_auth_headers, 0);
         assert!(!current_report.has_static_rpc_auth_header);
+        assert_eq!(current_report.signer_backend_count, 0);
+        assert!(!current_report.has_signer_backends);
+        assert!(current_report.signer_backend_kinds.is_empty());
+        assert!(!current_report.has_multiple_signer_backend_kinds);
         assert!(!current_report.perp_stack.is_complete());
         assert_eq!(
             current_report.missing_perp_contracts,
@@ -3130,10 +3146,12 @@ mod tests {
         assert_eq!(report.static_rpc_auth_headers, 1);
         assert!(report.has_static_rpc_auth_header);
         assert_eq!(report.signer_backend_count, 3);
+        assert!(report.has_signer_backends);
         assert_eq!(
             report.signer_backend_kinds,
             vec![SignerBackendKind::CircleDevWallet, SignerBackendKind::Kms]
         );
+        assert!(report.has_multiple_signer_backend_kinds);
         assert!(report.perp_stack.is_complete());
         assert!(report.missing_perp_contracts.is_empty());
         assert_eq!(
@@ -3163,10 +3181,14 @@ mod tests {
         let legacy_object = legacy_json.as_object_mut().expect("startup report object");
         legacy_object.remove("static_rpc_auth_headers");
         legacy_object.remove("has_static_rpc_auth_header");
+        legacy_object.remove("has_signer_backends");
+        legacy_object.remove("has_multiple_signer_backend_kinds");
         let legacy_report: TangentClientStartupReport =
             serde_json::from_value(legacy_json).expect("legacy startup report deserializes");
         assert_eq!(legacy_report.static_rpc_auth_headers, 0);
         assert!(!legacy_report.has_static_rpc_auth_header);
+        assert!(!legacy_report.has_signer_backends);
+        assert!(!legacy_report.has_multiple_signer_backend_kinds);
 
         assert_eq!(support_report.startup, report);
         assert_eq!(support_report.config, plan.config.report());
@@ -3178,6 +3200,8 @@ mod tests {
             vec!["Authorization"]
         );
         assert_eq!(support_report.config.signer_backend_count, 3);
+        assert!(support_report.config.has_signer_backends);
+        assert!(support_report.config.has_multiple_signer_backend_kinds);
         let support_json =
             serde_json::to_string(&support_report).expect("support report serializes");
         assert!(support_json.contains("Authorization"));
@@ -3413,6 +3437,7 @@ mod tests {
             vec!["authorization".to_owned()]
         );
         assert_eq!(report.signer_backend_count, 2);
+        assert!(report.has_signer_backends);
         assert_eq!(
             report.signer_backend_kinds,
             vec![
@@ -3420,6 +3445,7 @@ mod tests {
                 SignerBackendKind::Relayer
             ]
         );
+        assert!(report.has_multiple_signer_backend_kinds);
         assert_eq!(report.signer_backends[0].key_id, "wallet-1");
         assert_eq!(
             report.signer_backends[0].address,
@@ -3450,10 +3476,17 @@ mod tests {
             .expect("endpoint report object");
         endpoint_report.remove("static_rpc_auth_headers");
         endpoint_report.remove("has_static_rpc_auth_header");
+        let legacy_report_object = legacy_report_json
+            .as_object_mut()
+            .expect("config report object");
+        legacy_report_object.remove("has_signer_backends");
+        legacy_report_object.remove("has_multiple_signer_backend_kinds");
         let legacy_report: TangentClientConfigReport =
             serde_json::from_value(legacy_report_json).expect("legacy config report deserializes");
         assert_eq!(legacy_report.endpoint.static_rpc_auth_headers, 0);
         assert!(!legacy_report.endpoint.has_static_rpc_auth_header);
+        assert!(!legacy_report.has_signer_backends);
+        assert!(!legacy_report.has_multiple_signer_backend_kinds);
 
         let (adapter_backend, adapter_client) = config
             .external_signer_adapter("wallet-1", "circle-client")
