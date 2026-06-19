@@ -221,7 +221,10 @@ pub struct TangentLiquidationDryRunSummary {
     pub below_maintenance: bool,
     pub equity: i128,
     pub maintenance_margin: u128,
+    #[serde(default)]
     pub transaction_planned: bool,
+    #[serde(default)]
+    pub has_transaction_summary: bool,
     pub transaction_summary: Option<TxSubmissionPlanBatchSummary>,
 }
 
@@ -249,6 +252,8 @@ pub struct TangentLiquidationDryRunBatchSummary {
     pub all_ready: bool,
     pub below_maintenance: usize,
     pub transaction_plans: usize,
+    #[serde(default)]
+    pub has_transaction_plans: bool,
     pub ready_transaction_summary: TxSubmissionPlanBatchSummary,
     pub reports: Vec<TangentLiquidationDryRunSummary>,
 }
@@ -606,6 +611,7 @@ impl TangentLiquidationDryRun {
             equity: self.status.equity,
             maintenance_margin: self.status.maintenance_margin,
             transaction_planned: self.transaction_summary.is_some(),
+            has_transaction_summary: self.transaction_summary.is_some(),
             transaction_summary: self.transaction_summary.clone(),
         }
     }
@@ -637,6 +643,7 @@ impl TangentLiquidationDryRunBatch {
             all_ready: self.candidates > 0 && self.blocked == 0,
             below_maintenance,
             transaction_plans,
+            has_transaction_plans: transaction_plans > 0,
             ready_transaction_summary: self.ready_transaction_summary.clone(),
             reports,
         }
@@ -4818,11 +4825,24 @@ mod tests {
         assert_eq!(dry_run_summary.equity, -7);
         assert_eq!(dry_run_summary.maintenance_margin, 9);
         assert!(dry_run_summary.transaction_planned);
+        assert!(dry_run_summary.has_transaction_summary);
         let summary_json =
             serde_json::to_string(&dry_run_summary).expect("dry run summary serializes");
+        assert!(summary_json.contains("\"has_transaction_summary\":true"));
         let restored_summary: TangentLiquidationDryRunSummary =
             serde_json::from_str(&summary_json).expect("dry run summary deserializes");
         assert_eq!(restored_summary, dry_run_summary);
+        let mut legacy_summary_json =
+            serde_json::to_value(&dry_run_summary).expect("dry run summary value");
+        let legacy_summary_object = legacy_summary_json
+            .as_object_mut()
+            .expect("dry run summary object");
+        legacy_summary_object.remove("transaction_planned");
+        legacy_summary_object.remove("has_transaction_summary");
+        let legacy_summary: TangentLiquidationDryRunSummary =
+            serde_json::from_value(legacy_summary_json).expect("legacy dry run summary");
+        assert!(!legacy_summary.transaction_planned);
+        assert!(!legacy_summary.has_transaction_summary);
         let summary = dry_run.transaction_summary.expect("ready tx summary");
         assert_eq!(summary.len, 1);
         assert_eq!(summary.total_gas, Some(21_000));
@@ -4919,14 +4939,18 @@ mod tests {
         assert!(!batch_summary.all_ready);
         assert_eq!(batch_summary.below_maintenance, 1);
         assert_eq!(batch_summary.transaction_plans, 1);
+        assert!(batch_summary.has_transaction_plans);
         assert_eq!(batch_summary.ready_transaction_summary.len, 1);
         assert_eq!(batch_summary.reports.len(), 2);
         assert!(batch_summary.reports[0].transaction_planned);
+        assert!(batch_summary.reports[0].has_transaction_summary);
         assert!(!batch_summary.reports[1].transaction_planned);
+        assert!(!batch_summary.reports[1].has_transaction_summary);
         assert_eq!(batch_summary.reports[0].equity, -7);
         assert_eq!(batch_summary.reports[1].equity, 12);
         let batch_summary_json =
             serde_json::to_string(&batch_summary).expect("batch summary serializes");
+        assert!(batch_summary_json.contains("\"has_transaction_plans\":true"));
         let restored_batch_summary: TangentLiquidationDryRunBatchSummary =
             serde_json::from_str(&batch_summary_json).expect("batch summary deserializes");
         assert_eq!(restored_batch_summary, batch_summary);
@@ -4938,12 +4962,27 @@ mod tests {
         legacy_batch_summary_object.remove("has_ready");
         legacy_batch_summary_object.remove("has_blocked");
         legacy_batch_summary_object.remove("all_ready");
+        legacy_batch_summary_object.remove("has_transaction_plans");
+        let legacy_reports = legacy_batch_summary_object
+            .get_mut("reports")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("legacy dry run reports");
+        for report in legacy_reports {
+            let report_object = report.as_object_mut().expect("legacy dry run report");
+            report_object.remove("transaction_planned");
+            report_object.remove("has_transaction_summary");
+        }
         let legacy_batch_summary: TangentLiquidationDryRunBatchSummary =
             serde_json::from_value(legacy_batch_summary_json)
                 .expect("legacy batch summary deserializes");
         assert!(!legacy_batch_summary.has_ready);
         assert!(!legacy_batch_summary.has_blocked);
         assert!(!legacy_batch_summary.all_ready);
+        assert!(!legacy_batch_summary.has_transaction_plans);
+        assert!(legacy_batch_summary
+            .reports
+            .iter()
+            .all(|report| !report.transaction_planned && !report.has_transaction_summary));
         assert_eq!(batch.reports.len(), 2);
         assert_eq!(batch.reports[0].candidate, candidates[0]);
         assert_eq!(
