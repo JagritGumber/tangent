@@ -213,8 +213,16 @@ pub struct ExternalSigningResponseReport {
     pub is_raw_transaction: bool,
     pub order_signature_hex: Option<String>,
     pub order_signature_bytes: Option<usize>,
+    #[serde(default)]
+    pub has_order_signature_hex: bool,
+    #[serde(default)]
+    pub has_order_signature_bytes: bool,
     pub raw_transaction_bytes: Option<usize>,
     pub raw_transaction_hash: Option<String>,
+    #[serde(default)]
+    pub has_raw_transaction_bytes: bool,
+    #[serde(default)]
+    pub has_raw_transaction_hash: bool,
 }
 
 /// An order plus its EIP-712 domain and final signing digest.
@@ -635,8 +643,12 @@ impl ExternalSigningResponse {
                 is_raw_transaction: false,
                 order_signature_hex: Some(signature.to_hex()),
                 order_signature_bytes: Some(OrderSignature::LEN),
+                has_order_signature_hex: true,
+                has_order_signature_bytes: true,
                 raw_transaction_bytes: None,
                 raw_transaction_hash: None,
+                has_raw_transaction_bytes: false,
+                has_raw_transaction_hash: false,
             },
             Self::RawTransaction(signed_transaction) => {
                 let hash = keccak256(signed_transaction.as_bytes());
@@ -646,8 +658,12 @@ impl ExternalSigningResponse {
                     is_raw_transaction: true,
                     order_signature_hex: None,
                     order_signature_bytes: None,
+                    has_order_signature_hex: false,
+                    has_order_signature_bytes: false,
                     raw_transaction_bytes: Some(signed_transaction.len()),
                     raw_transaction_hash: Some(format!("0x{}", hex::encode(hash))),
+                    has_raw_transaction_bytes: true,
+                    has_raw_transaction_hash: true,
                 }
             }
         }
@@ -1153,22 +1169,39 @@ mod tests {
             response_report.order_signature_bytes,
             Some(OrderSignature::LEN)
         );
+        assert!(response_report.has_order_signature_hex);
+        assert!(response_report.has_order_signature_bytes);
         assert_eq!(response_report.raw_transaction_bytes, None);
+        assert!(!response_report.has_raw_transaction_bytes);
+        assert!(!response_report.has_raw_transaction_hash);
         let response_report_json =
             serde_json::to_string(&response_report).expect("response report serializes");
         assert!(response_report_json.contains("\"is_order_signature\":true"));
+        assert!(response_report_json.contains("\"has_order_signature_hex\":true"));
         assert!(response_report_json.contains("\"is_raw_transaction\":false"));
         let restored_response_report: ExternalSigningResponseReport =
             serde_json::from_str(&response_report_json).expect("response report deserializes");
         assert_eq!(restored_response_report, response_report);
-        let legacy_response_report_json = response_report_json
-            .replace("\"is_order_signature\":true,", "")
-            .replace("\"is_raw_transaction\":false,", "");
+        let mut legacy_response_report_json =
+            serde_json::to_value(&response_report).expect("response report value");
+        let legacy_response_report_object = legacy_response_report_json
+            .as_object_mut()
+            .expect("response report object");
+        legacy_response_report_object.remove("is_order_signature");
+        legacy_response_report_object.remove("is_raw_transaction");
+        legacy_response_report_object.remove("has_order_signature_hex");
+        legacy_response_report_object.remove("has_order_signature_bytes");
+        legacy_response_report_object.remove("has_raw_transaction_bytes");
+        legacy_response_report_object.remove("has_raw_transaction_hash");
         let restored_legacy_response_report: ExternalSigningResponseReport =
-            serde_json::from_str(&legacy_response_report_json)
+            serde_json::from_value(legacy_response_report_json)
                 .expect("legacy response report deserializes");
         assert!(!restored_legacy_response_report.is_order_signature);
         assert!(!restored_legacy_response_report.is_raw_transaction);
+        assert!(!restored_legacy_response_report.has_order_signature_hex);
+        assert!(!restored_legacy_response_report.has_order_signature_bytes);
+        assert!(!restored_legacy_response_report.has_raw_transaction_bytes);
+        assert!(!restored_legacy_response_report.has_raw_transaction_hash);
         let backend = SignerBackendConfig::new(SignerBackendKind::CircleDevWallet, "wallet-1")
             .expect("backend");
         let client = MockExternalSigningClient::new([ExternalSigningResponse::Order(signature)]);
@@ -1489,27 +1522,44 @@ mod tests {
         assert!(!response_report.is_order_signature);
         assert!(response_report.is_raw_transaction);
         assert_eq!(response_report.order_signature_hex, None);
+        assert!(!response_report.has_order_signature_hex);
+        assert!(!response_report.has_order_signature_bytes);
         assert_eq!(response_report.raw_transaction_bytes, Some(3));
+        assert!(response_report.has_raw_transaction_bytes);
         assert_eq!(
             response_report.raw_transaction_hash.as_deref(),
             Some("0xe3607eedbe2ea88ad1994e3ef901f3c7ed167a59ebb5ffe5e40321e468f49eb1")
         );
+        assert!(response_report.has_raw_transaction_hash);
         let response_report_json =
             serde_json::to_string(&response_report).expect("response report serializes");
         assert!(response_report_json.contains("\"raw_transaction_bytes\":3"));
+        assert!(response_report_json.contains("\"has_raw_transaction_hash\":true"));
         assert!(response_report_json.contains("\"is_order_signature\":false"));
         assert!(response_report_json.contains("\"is_raw_transaction\":true"));
         let restored_response_report: ExternalSigningResponseReport =
             serde_json::from_str(&response_report_json).expect("response report deserializes");
         assert_eq!(restored_response_report, response_report);
-        let legacy_response_report_json = response_report_json
-            .replace("\"is_order_signature\":false,", "")
-            .replace("\"is_raw_transaction\":true,", "");
+        let mut legacy_response_report_json =
+            serde_json::to_value(&response_report).expect("response report value");
+        let legacy_response_report_object = legacy_response_report_json
+            .as_object_mut()
+            .expect("response report object");
+        legacy_response_report_object.remove("is_order_signature");
+        legacy_response_report_object.remove("is_raw_transaction");
+        legacy_response_report_object.remove("has_order_signature_hex");
+        legacy_response_report_object.remove("has_order_signature_bytes");
+        legacy_response_report_object.remove("has_raw_transaction_bytes");
+        legacy_response_report_object.remove("has_raw_transaction_hash");
         let restored_legacy_response_report: ExternalSigningResponseReport =
-            serde_json::from_str(&legacy_response_report_json)
+            serde_json::from_value(legacy_response_report_json)
                 .expect("deserialize legacy raw response report");
         assert!(!restored_legacy_response_report.is_order_signature);
         assert!(!restored_legacy_response_report.is_raw_transaction);
+        assert!(!restored_legacy_response_report.has_order_signature_hex);
+        assert!(!restored_legacy_response_report.has_order_signature_bytes);
+        assert!(!restored_legacy_response_report.has_raw_transaction_bytes);
+        assert!(!restored_legacy_response_report.has_raw_transaction_hash);
         let json = serde_json::to_string(&response).expect("serialize response");
         let decoded: ExternalSigningResponse =
             serde_json::from_str(&json).expect("decode response");
