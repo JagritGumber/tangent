@@ -129,14 +129,30 @@ pub struct TxConfirmationSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxConfirmationSnapshotReport {
     pub transaction_hash: Option<TxHash>,
+    #[serde(default)]
+    pub has_transaction_hash: bool,
     pub current_block: Option<u64>,
+    #[serde(default)]
+    pub has_current_block: bool,
     pub receipt_block_number: Option<u64>,
     pub receipt_status: Option<bool>,
+    #[serde(default)]
+    pub has_receipt: bool,
+    #[serde(default)]
+    pub has_receipt_status: bool,
     pub confirmations: Option<u64>,
+    #[serde(default)]
+    pub has_confirmations: bool,
     pub gas_used: Option<u64>,
+    #[serde(default)]
+    pub has_gas_used: bool,
     pub effective_gas_price: Option<u128>,
+    #[serde(default)]
+    pub has_effective_gas_price: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receipt_summary: Option<TxReceiptSummary>,
+    #[serde(default)]
+    pub has_receipt_summary: bool,
     pub status: TxConfirmationStatus,
 }
 
@@ -668,27 +684,44 @@ impl TxConfirmationSnapshot {
         &self,
         confirmation_plan: Option<TxConfirmationPlan>,
     ) -> TxConfirmationSnapshotReport {
+        let transaction_hash = confirmation_plan
+            .map(|plan| plan.transaction_hash)
+            .or_else(|| {
+                self.receipt
+                    .as_ref()
+                    .map(|receipt| receipt.transaction_hash)
+            });
+        let receipt_block_number = self
+            .receipt
+            .as_ref()
+            .and_then(|receipt| receipt.block_number);
+        let receipt_status = self.receipt.as_ref().and_then(|receipt| receipt.status);
+        let confirmations = self.status.confirmations();
+        let gas_used = self.receipt.as_ref().and_then(|receipt| receipt.gas_used);
+        let effective_gas_price = self
+            .receipt
+            .as_ref()
+            .and_then(|receipt| receipt.effective_gas_price);
+        let receipt_summary = self.receipt.as_ref().map(TxReceipt::summary);
+        let has_receipt_summary = receipt_summary.is_some();
+
         TxConfirmationSnapshotReport {
-            transaction_hash: confirmation_plan
-                .map(|plan| plan.transaction_hash)
-                .or_else(|| {
-                    self.receipt
-                        .as_ref()
-                        .map(|receipt| receipt.transaction_hash)
-                }),
+            transaction_hash,
+            has_transaction_hash: transaction_hash.is_some(),
             current_block: self.current_block,
-            receipt_block_number: self
-                .receipt
-                .as_ref()
-                .and_then(|receipt| receipt.block_number),
-            receipt_status: self.receipt.as_ref().and_then(|receipt| receipt.status),
-            confirmations: self.status.confirmations(),
-            gas_used: self.receipt.as_ref().and_then(|receipt| receipt.gas_used),
-            effective_gas_price: self
-                .receipt
-                .as_ref()
-                .and_then(|receipt| receipt.effective_gas_price),
-            receipt_summary: self.receipt.as_ref().map(TxReceipt::summary),
+            has_current_block: self.current_block.is_some(),
+            receipt_block_number,
+            receipt_status,
+            has_receipt: self.receipt.is_some(),
+            has_receipt_status: receipt_status.is_some(),
+            confirmations,
+            has_confirmations: confirmations.is_some(),
+            gas_used,
+            has_gas_used: gas_used.is_some(),
+            effective_gas_price,
+            has_effective_gas_price: effective_gas_price.is_some(),
+            receipt_summary,
+            has_receipt_summary,
             status: self.status,
         }
     }
@@ -1978,9 +2011,17 @@ mod tests {
             pending_report.reports[0].transaction_hash,
             Some(confirmed_hash)
         );
+        assert!(pending_report.reports[0].has_transaction_hash);
+        assert!(pending_report.reports[0].has_current_block);
+        assert!(pending_report.reports[0].has_receipt);
         assert_eq!(pending_report.reports[0].receipt_block_number, Some(10));
         assert_eq!(pending_report.reports[0].receipt_status, Some(true));
+        assert!(pending_report.reports[0].has_receipt_status);
         assert_eq!(pending_report.reports[0].confirmations, Some(3));
+        assert!(pending_report.reports[0].has_confirmations);
+        assert!(!pending_report.reports[0].has_gas_used);
+        assert!(!pending_report.reports[0].has_effective_gas_price);
+        assert!(pending_report.reports[0].has_receipt_summary);
         let receipt_summary = pending_report.reports[0]
             .receipt_summary
             .expect("receipt summary");
@@ -1992,12 +2033,19 @@ mod tests {
             pending_report.reports[1].transaction_hash,
             Some(pending_hash)
         );
+        assert!(pending_report.reports[1].has_transaction_hash);
+        assert!(pending_report.reports[1].has_current_block);
+        assert!(pending_report.reports[1].has_receipt);
+        assert!(!pending_report.reports[1].has_receipt_status);
+        assert!(pending_report.reports[1].has_confirmations);
+        assert!(pending_report.reports[1].has_receipt_summary);
         assert_eq!(
             pending_report.reports[1].status,
             TxConfirmationStatus::Pending { confirmations: 1 }
         );
         let json = serde_json::to_string(&pending_report).expect("confirmation report serializes");
         assert!(json.contains("\"receipt_summary\""));
+        assert!(json.contains("\"has_receipt_summary\":true"));
         assert!(json.contains("\"should_continue_polling\":true"));
         assert!(json.contains("\"is_terminal\":false"));
         let restored: TxConfirmationBatchReport =
@@ -2031,6 +2079,14 @@ mod tests {
         let legacy_report: TxConfirmationSnapshotReport =
             serde_json::from_value(legacy_json).expect("legacy confirmation report deserializes");
         assert_eq!(legacy_report.receipt_summary, None);
+        assert!(!legacy_report.has_transaction_hash);
+        assert!(!legacy_report.has_current_block);
+        assert!(!legacy_report.has_receipt);
+        assert!(!legacy_report.has_receipt_status);
+        assert!(!legacy_report.has_confirmations);
+        assert!(!legacy_report.has_gas_used);
+        assert!(!legacy_report.has_effective_gas_price);
+        assert!(!legacy_report.has_receipt_summary);
         assert!(pending_batch.should_continue_polling());
         assert!(!pending_batch.is_terminal());
 
