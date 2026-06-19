@@ -275,7 +275,11 @@ pub struct TangentKeeperLiquidationScanReport {
     pub readiness: crate::LiquidationReadiness,
     #[serde(default)]
     pub has_submission: bool,
+    #[serde(default)]
+    pub has_submitted_transaction_hash: bool,
     pub submitted_transaction_hash: Option<TxHash>,
+    #[serde(default)]
+    pub has_submitted_transaction_report: bool,
     pub submitted_transaction_report: Option<TxWorkflowSubmissionReport>,
 }
 
@@ -305,9 +309,17 @@ pub struct TangentKeeperPollingExecutionReport {
     pub maintenance_submissions: usize,
     pub maintenance_transaction_hashes: Vec<TxHash>,
     pub maintenance_submission_report: Option<TxWorkflowBatchSubmissionReport>,
+    #[serde(default)]
+    pub has_maintenance_submission_report: bool,
     pub liquidation_scans: usize,
+    #[serde(default)]
+    pub has_liquidation_reports: bool,
     pub ready_liquidations: usize,
+    #[serde(default)]
+    pub has_ready_liquidations: bool,
     pub submitted_liquidations: usize,
+    #[serde(default)]
+    pub has_submitted_liquidations: bool,
     pub liquidation_reports: Vec<TangentKeeperLiquidationScanReport>,
     pub outcome: KeeperPollingOutcome,
 }
@@ -345,6 +357,7 @@ pub struct TangentKeeperPollingExecutionSummary {
     #[serde(default)]
     pub liquidation_transaction_hashes: Vec<TxHash>,
     pub submitted_transactions: usize,
+    #[serde(default)]
     pub has_submissions: bool,
     pub advanced_event_cursor: bool,
     pub completed_maintenance: bool,
@@ -798,6 +811,16 @@ impl TangentKeeperPollingExecution {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let maintenance_submission_report = self
+            .maintenance_submission
+            .as_ref()
+            .map(TxWorkflowBatchSubmission::report);
+        let has_maintenance_submission_report = maintenance_submission_report.is_some();
+        let liquidation_scans = liquidation_reports.len();
+        let submitted_liquidations = liquidation_reports
+            .iter()
+            .filter(|report| report.submitted_transaction_hash.is_some())
+            .count();
 
         TangentKeeperPollingExecutionReport {
             checkpoint,
@@ -809,16 +832,14 @@ impl TangentKeeperPollingExecution {
             derived_liquidation_candidates: self.derived_liquidation_candidates.clone(),
             maintenance_submissions: maintenance_transaction_hashes.len(),
             maintenance_transaction_hashes,
-            maintenance_submission_report: self
-                .maintenance_submission
-                .as_ref()
-                .map(TxWorkflowBatchSubmission::report),
-            liquidation_scans: liquidation_reports.len(),
+            maintenance_submission_report,
+            has_maintenance_submission_report,
+            liquidation_scans,
+            has_liquidation_reports: liquidation_scans > 0,
             ready_liquidations,
-            submitted_liquidations: liquidation_reports
-                .iter()
-                .filter(|report| report.submitted_transaction_hash.is_some())
-                .count(),
+            has_ready_liquidations: ready_liquidations > 0,
+            submitted_liquidations,
+            has_submitted_liquidations: submitted_liquidations > 0,
             liquidation_reports,
             outcome: self.outcome,
         }
@@ -872,18 +893,20 @@ impl TangentKeeperLiquidationScanReport {
     #[must_use]
     pub fn from_scan_result(result: &TangentKeeperLiquidationScanResult) -> Self {
         let has_submission = result.submission.is_some();
+        let submitted_transaction_hash = result
+            .submission
+            .as_ref()
+            .map(|submission| submission.transaction_hash);
+        let submitted_transaction_report =
+            result.submission.as_ref().map(TxWorkflowSubmission::report);
         Self {
             candidate: result.candidate,
             readiness: result.status.readiness(),
             has_submission,
-            submitted_transaction_hash: result
-                .submission
-                .as_ref()
-                .map(|submission| submission.transaction_hash),
-            submitted_transaction_report: result
-                .submission
-                .as_ref()
-                .map(TxWorkflowSubmission::report),
+            has_submitted_transaction_hash: submitted_transaction_hash.is_some(),
+            submitted_transaction_hash,
+            has_submitted_transaction_report: submitted_transaction_report.is_some(),
+            submitted_transaction_report,
         }
     }
 }
@@ -5254,6 +5277,7 @@ mod tests {
         assert_eq!(report.unknown_logs, 0);
         assert_eq!(report.maintenance_submissions, 1);
         assert_eq!(report.maintenance_transaction_hashes, vec![tick_hash]);
+        assert!(report.has_maintenance_submission_report);
         assert_eq!(
             report
                 .maintenance_submission_report
@@ -5263,8 +5287,11 @@ mod tests {
             vec![tick_hash]
         );
         assert_eq!(report.liquidation_scans, 1);
+        assert!(report.has_liquidation_reports);
         assert_eq!(report.ready_liquidations, 1);
+        assert!(report.has_ready_liquidations);
         assert_eq!(report.submitted_liquidations, 1);
+        assert!(report.has_submitted_liquidations);
         assert_eq!(
             report.liquidation_reports[0]
                 .submitted_transaction_report
@@ -5279,7 +5306,9 @@ mod tests {
                 candidate,
                 readiness: crate::LiquidationReadiness::Ready,
                 has_submission: true,
+                has_submitted_transaction_hash: true,
                 submitted_transaction_hash: Some(liquidation_hash),
+                has_submitted_transaction_report: true,
                 submitted_transaction_report: execution.liquidation_results[0]
                     .submission
                     .as_ref()
@@ -5287,6 +5316,8 @@ mod tests {
             }]
         );
         assert!(report.liquidation_reports[0].has_submission);
+        assert!(report.liquidation_reports[0].has_submitted_transaction_hash);
+        assert!(report.liquidation_reports[0].has_submitted_transaction_report);
         assert_eq!(report.checkpoint.snapshot.last_tick_block, Some(130));
         assert_eq!(
             report.checkpoint.snapshot.last_liquidation_scan_block,
@@ -5294,6 +5325,8 @@ mod tests {
         );
         let json = serde_json::to_string(&report).expect("report serializes");
         assert!(json.contains("\"has_submission\":true"));
+        assert!(json.contains("\"has_maintenance_submission_report\":true"));
+        assert!(json.contains("\"has_submitted_liquidations\":true"));
         let restored: TangentKeeperPollingExecutionReport =
             serde_json::from_str(&json).expect("report deserializes");
         assert_eq!(restored, report);
@@ -5301,17 +5334,29 @@ mod tests {
         let legacy_report_object = legacy_report_json
             .as_object_mut()
             .expect("report value object");
+        legacy_report_object.remove("has_maintenance_submission_report");
+        legacy_report_object.remove("has_liquidation_reports");
+        legacy_report_object.remove("has_ready_liquidations");
+        legacy_report_object.remove("has_submitted_liquidations");
         let legacy_liquidation_reports = legacy_report_object
             .get_mut("liquidation_reports")
             .and_then(serde_json::Value::as_array_mut)
             .expect("liquidation reports array");
-        legacy_liquidation_reports[0]
+        let legacy_liquidation_report = legacy_liquidation_reports[0]
             .as_object_mut()
-            .expect("liquidation report object")
-            .remove("has_submission");
+            .expect("liquidation report object");
+        legacy_liquidation_report.remove("has_submission");
+        legacy_liquidation_report.remove("has_submitted_transaction_hash");
+        legacy_liquidation_report.remove("has_submitted_transaction_report");
         let legacy_report: TangentKeeperPollingExecutionReport =
             serde_json::from_value(legacy_report_json).expect("legacy report deserializes");
+        assert!(!legacy_report.has_maintenance_submission_report);
+        assert!(!legacy_report.has_liquidation_reports);
+        assert!(!legacy_report.has_ready_liquidations);
+        assert!(!legacy_report.has_submitted_liquidations);
         assert!(!legacy_report.liquidation_reports[0].has_submission);
+        assert!(!legacy_report.liquidation_reports[0].has_submitted_transaction_hash);
+        assert!(!legacy_report.liquidation_reports[0].has_submitted_transaction_report);
         let summary = report.summary();
         assert_eq!(summary.checkpoint, report.checkpoint);
         assert!(summary.planned_work);
@@ -5359,6 +5404,7 @@ mod tests {
         legacy_summary_object.remove("has_derived_liquidation_candidates");
         legacy_summary_object.remove("has_liquidation_scans");
         legacy_summary_object.remove("has_ready_liquidations");
+        legacy_summary_object.remove("has_submissions");
         let legacy_summary: TangentKeeperPollingExecutionSummary =
             serde_json::from_value(legacy_summary_json).expect("legacy summary deserializes");
         assert_eq!(legacy_summary.maintenance_transaction_hashes, Vec::new());
@@ -5369,6 +5415,7 @@ mod tests {
         assert!(!legacy_summary.has_derived_liquidation_candidates);
         assert!(!legacy_summary.has_liquidation_scans);
         assert!(!legacy_summary.has_ready_liquidations);
+        assert!(!legacy_summary.has_submissions);
         let next = execution.outcome.next_snapshot(snapshot);
         assert_eq!(next.last_tick_block, Some(130));
         assert_eq!(next.last_liquidation_scan_block, Some(130));
