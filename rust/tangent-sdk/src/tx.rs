@@ -165,6 +165,47 @@ pub struct JsonRpcResponse<T> {
     pub error: Option<JsonRpcErrorObject>,
 }
 
+/// Compact review shape for one JSON-RPC response envelope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonRpcResponseSummary {
+    pub id: u64,
+    #[serde(default)]
+    pub has_result: bool,
+    #[serde(default)]
+    pub has_error: bool,
+    #[serde(default)]
+    pub is_success: bool,
+    #[serde(default)]
+    pub is_missing_result: bool,
+    pub error_code: Option<i64>,
+    #[serde(default)]
+    pub has_error_data: bool,
+}
+
+/// Compact review shape for a JSON-RPC response batch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonRpcResponseBatchSummary {
+    pub len: usize,
+    pub is_empty: bool,
+    #[serde(default)]
+    pub has_responses: bool,
+    pub first_id: Option<u64>,
+    pub last_id: Option<u64>,
+    pub successes: usize,
+    #[serde(default)]
+    pub has_successes: bool,
+    pub errors: usize,
+    #[serde(default)]
+    pub has_errors: bool,
+    pub missing_results: usize,
+    #[serde(default)]
+    pub has_missing_results: bool,
+    pub duplicate_ids: usize,
+    #[serde(default)]
+    pub has_duplicate_ids: bool,
+    pub responses: Vec<JsonRpcResponseSummary>,
+}
+
 /// JSON-RPC 2.0 error object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonRpcErrorObject {
@@ -1597,6 +1638,71 @@ impl<T> JsonRpcResponse<T> {
         self.error.is_some()
     }
 
+    #[must_use]
+    pub fn summary(&self) -> JsonRpcResponseSummary {
+        JsonRpcResponseSummary {
+            id: self.id,
+            has_result: self.result.is_some(),
+            has_error: self.error.is_some(),
+            is_success: self.is_success(),
+            is_missing_result: self.result.is_none() && self.error.is_none(),
+            error_code: self.error.as_ref().map(|error| error.code),
+            has_error_data: self
+                .error
+                .as_ref()
+                .is_some_and(|error| error.data.is_some()),
+        }
+    }
+
+    #[must_use]
+    pub fn summarize_batch<'a>(
+        responses: impl IntoIterator<Item = &'a JsonRpcResponse<T>>,
+    ) -> JsonRpcResponseBatchSummary
+    where
+        T: 'a,
+    {
+        let responses = responses
+            .into_iter()
+            .map(JsonRpcResponse::summary)
+            .collect::<Vec<_>>();
+        let first_id = responses.first().map(|response| response.id);
+        let last_id = responses.last().map(|response| response.id);
+        let successes = responses
+            .iter()
+            .filter(|response| response.is_success)
+            .count();
+        let errors = responses
+            .iter()
+            .filter(|response| response.has_error)
+            .count();
+        let missing_results = responses
+            .iter()
+            .filter(|response| response.is_missing_result)
+            .count();
+        let mut seen_ids = BTreeMap::<u64, usize>::new();
+        for response in &responses {
+            *seen_ids.entry(response.id).or_default() += 1;
+        }
+        let duplicate_ids = seen_ids.values().filter(|count| **count > 1).count();
+
+        JsonRpcResponseBatchSummary {
+            len: responses.len(),
+            is_empty: responses.is_empty(),
+            has_responses: !responses.is_empty(),
+            first_id,
+            last_id,
+            successes,
+            has_successes: successes > 0,
+            errors,
+            has_errors: errors > 0,
+            missing_results,
+            has_missing_results: missing_results > 0,
+            duplicate_ids,
+            has_duplicate_ids: duplicate_ids > 0,
+            responses,
+        }
+    }
+
     /// Return the response result, or surface the provider error object.
     pub fn into_result(self) -> Result<T, JsonRpcResponseError> {
         if let Some(error) = self.error {
@@ -2660,6 +2766,25 @@ mod tests {
                 .expect("call response");
         assert!(response.is_success());
         assert!(!response.is_error());
+        let response_summary = response.summary();
+        assert_eq!(
+            response_summary,
+            JsonRpcResponseSummary {
+                id: 1,
+                has_result: true,
+                has_error: false,
+                is_success: true,
+                is_missing_result: false,
+                error_code: None,
+                has_error_data: false,
+            }
+        );
+        let response_summary_json =
+            serde_json::to_string(&response_summary).expect("serialize response summary");
+        assert!(response_summary_json.contains("\"has_result\":true"));
+        let restored_response_summary: JsonRpcResponseSummary =
+            serde_json::from_str(&response_summary_json).expect("deserialize response summary");
+        assert_eq!(restored_response_summary, response_summary);
         let call_return =
             CallReturn::from_hex(response.into_result().expect("result")).expect("return hex");
         assert_eq!(call_return.as_bytes(), &[0x00, 0x07]);
@@ -2710,6 +2835,18 @@ mod tests {
         .expect("error response");
         assert!(error_response.is_error());
         assert_eq!(
+            error_response.summary(),
+            JsonRpcResponseSummary {
+                id: 2,
+                has_result: false,
+                has_error: true,
+                is_success: false,
+                is_missing_result: false,
+                error_code: Some(-32000),
+                has_error_data: true,
+            }
+        );
+        assert_eq!(
             error_response.into_result().expect_err("rpc error"),
             JsonRpcResponseError::Rpc {
                 code: -32000,
@@ -2721,8 +2858,106 @@ mod tests {
         let missing_response: JsonRpcResponse<String> =
             serde_json::from_str("{\"jsonrpc\":\"2.0\",\"id\":3}").expect("missing response");
         assert_eq!(
+            missing_response.summary(),
+            JsonRpcResponseSummary {
+                id: 3,
+                has_result: false,
+                has_error: false,
+                is_success: false,
+                is_missing_result: true,
+                error_code: None,
+                has_error_data: false,
+            }
+        );
+        assert_eq!(
             missing_response.into_result().expect_err("missing result"),
             JsonRpcResponseError::MissingResult
+        );
+
+        let ok_for_summary: JsonRpcResponse<String> =
+            serde_json::from_str("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x0007\"}")
+                .expect("summary success response");
+        let err_for_summary: JsonRpcResponse<String> = serde_json::from_str(
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32000,\"message\":\"execution reverted\",\"data\":{\"reason\":\"paused\"}}}",
+        )
+        .expect("summary error response");
+        let missing_for_summary: JsonRpcResponse<String> =
+            serde_json::from_str("{\"jsonrpc\":\"2.0\",\"id\":2}")
+                .expect("summary missing response");
+        let batch_summary = JsonRpcResponse::summarize_batch([
+            &ok_for_summary,
+            &err_for_summary,
+            &missing_for_summary,
+        ]);
+        assert_eq!(batch_summary.len, 3);
+        assert!(!batch_summary.is_empty);
+        assert!(batch_summary.has_responses);
+        assert_eq!(batch_summary.first_id, Some(1));
+        assert_eq!(batch_summary.last_id, Some(2));
+        assert_eq!(batch_summary.successes, 1);
+        assert!(batch_summary.has_successes);
+        assert_eq!(batch_summary.errors, 1);
+        assert!(batch_summary.has_errors);
+        assert_eq!(batch_summary.missing_results, 1);
+        assert!(batch_summary.has_missing_results);
+        assert_eq!(batch_summary.duplicate_ids, 1);
+        assert!(batch_summary.has_duplicate_ids);
+        assert_eq!(batch_summary.responses[0], ok_for_summary.summary());
+
+        let mut legacy_json = serde_json::to_value(&batch_summary).expect("summary json");
+        let legacy_object = legacy_json.as_object_mut().expect("summary object");
+        legacy_object.remove("has_responses");
+        legacy_object.remove("has_successes");
+        legacy_object.remove("has_errors");
+        legacy_object.remove("has_missing_results");
+        legacy_object.remove("has_duplicate_ids");
+        let legacy_responses = legacy_object
+            .get_mut("responses")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("summary responses");
+        for response in legacy_responses {
+            let response_object = response.as_object_mut().expect("response summary object");
+            response_object.remove("has_result");
+            response_object.remove("has_error");
+            response_object.remove("is_success");
+            response_object.remove("is_missing_result");
+            response_object.remove("has_error_data");
+        }
+        let legacy_summary: JsonRpcResponseBatchSummary =
+            serde_json::from_value(legacy_json).expect("legacy summary");
+        assert!(!legacy_summary.has_responses);
+        assert!(!legacy_summary.has_successes);
+        assert!(!legacy_summary.has_errors);
+        assert!(!legacy_summary.has_missing_results);
+        assert!(!legacy_summary.has_duplicate_ids);
+        assert!(legacy_summary.responses.iter().all(|response| {
+            !response.has_result
+                && !response.has_error
+                && !response.is_success
+                && !response.is_missing_result
+                && !response.has_error_data
+        }));
+
+        assert_eq!(
+            JsonRpcResponse::<String>::summarize_batch(
+                std::iter::empty::<&JsonRpcResponse<String>>()
+            ),
+            JsonRpcResponseBatchSummary {
+                len: 0,
+                is_empty: true,
+                has_responses: false,
+                first_id: None,
+                last_id: None,
+                successes: 0,
+                has_successes: false,
+                errors: 0,
+                has_errors: false,
+                missing_results: 0,
+                has_missing_results: false,
+                duplicate_ids: 0,
+                has_duplicate_ids: false,
+                responses: Vec::new(),
+            }
         );
     }
 
