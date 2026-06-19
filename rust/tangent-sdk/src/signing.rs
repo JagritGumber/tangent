@@ -138,6 +138,8 @@ pub struct ExternalSigningRequestReport {
     pub backend_kind: SignerBackendKind,
     pub backend_key_id: String,
     pub backend_address: Option<Address>,
+    #[serde(default)]
+    pub backend_has_address: bool,
     pub payload_kind: ExternalSigningPayloadKind,
     #[serde(default)]
     pub is_order_request: bool,
@@ -162,6 +164,18 @@ pub struct ExternalSigningRequestReport {
     pub transaction_max_fee_per_gas: Option<String>,
     pub transaction_max_priority_fee_per_gas: Option<String>,
     pub transaction_chain_id: Option<String>,
+    #[serde(default)]
+    pub transaction_has_sender: bool,
+    #[serde(default)]
+    pub transaction_has_nonce: bool,
+    #[serde(default)]
+    pub transaction_has_gas: bool,
+    #[serde(default)]
+    pub transaction_has_any_fee: bool,
+    #[serde(default)]
+    pub transaction_has_chain_id: bool,
+    #[serde(default)]
+    pub transaction_has_selector: bool,
     pub transaction_uses_legacy_gas_price: bool,
     pub transaction_uses_eip1559_fees: bool,
     pub transaction_selector: Option<String>,
@@ -510,6 +524,7 @@ impl ExternalSigningRequest {
             backend_kind: self.backend.kind,
             backend_key_id: self.backend.key_id.clone(),
             backend_address: self.backend.address,
+            backend_has_address: self.backend.address.is_some(),
             payload_kind: self.payload.kind(),
             is_order_request: matches!(self.payload, ExternalSigningPayload::Order(_)),
             is_raw_transaction_request: matches!(
@@ -535,6 +550,12 @@ impl ExternalSigningRequest {
             transaction_max_fee_per_gas: None,
             transaction_max_priority_fee_per_gas: None,
             transaction_chain_id: None,
+            transaction_has_sender: false,
+            transaction_has_nonce: false,
+            transaction_has_gas: false,
+            transaction_has_any_fee: false,
+            transaction_has_chain_id: false,
+            transaction_has_selector: false,
             transaction_uses_legacy_gas_price: false,
             transaction_uses_eip1559_fees: false,
             transaction_selector: None,
@@ -565,16 +586,23 @@ impl ExternalSigningRequest {
                 report.transaction_max_priority_fee_per_gas =
                     request.transaction.max_priority_fee_per_gas.clone();
                 report.transaction_chain_id = request.transaction.chain_id.clone();
+                report.transaction_has_sender = request.transaction.from.is_some();
+                report.transaction_has_nonce = request.transaction.nonce.is_some();
+                report.transaction_has_gas = request.transaction.gas.is_some();
                 report.transaction_uses_legacy_gas_price = request.transaction.gas_price.is_some();
                 report.transaction_uses_eip1559_fees =
                     request.transaction.max_fee_per_gas.is_some()
                         || request.transaction.max_priority_fee_per_gas.is_some();
+                report.transaction_has_any_fee = report.transaction_uses_legacy_gas_price
+                    || report.transaction_uses_eip1559_fees;
+                report.transaction_has_chain_id = request.transaction.chain_id.is_some();
                 let calldata = decode_tx_data(&request.transaction.data);
                 report.transaction_selector = calldata
                     .as_ref()
                     .and_then(|data| data.get(..4))
                     .map(|selector| format!("0x{}", hex::encode(selector)));
                 report.transaction_calldata_bytes = calldata.as_ref().map(Vec::len);
+                report.transaction_has_selector = report.transaction_selector.is_some();
             }
         }
 
@@ -995,6 +1023,8 @@ mod tests {
         assert_eq!(report.request_id, "order-1");
         assert_eq!(report.backend_kind, SignerBackendKind::Kms);
         assert_eq!(report.backend_key_id, "key-1");
+        assert_eq!(report.backend_address, None);
+        assert!(!report.backend_has_address);
         assert_eq!(report.payload_kind, ExternalSigningPayloadKind::Order);
         assert!(report.is_order_request);
         assert!(!report.is_raw_transaction_request);
@@ -1012,6 +1042,12 @@ mod tests {
         assert_eq!(report.order_expiry, Some(prepared.order.expiry));
         assert_eq!(report.order_reduce_only, Some(prepared.order.reduce_only));
         assert_eq!(report.transaction_to, None);
+        assert!(!report.transaction_has_sender);
+        assert!(!report.transaction_has_nonce);
+        assert!(!report.transaction_has_gas);
+        assert!(!report.transaction_has_any_fee);
+        assert!(!report.transaction_has_chain_id);
+        assert!(!report.transaction_has_selector);
         let report_json = serde_json::to_string(&report).expect("report serializes");
         assert!(report_json.contains("\"order_account_id\":7"));
         assert!(report_json.contains("\"order_is_buy\":true"));
@@ -1021,12 +1057,26 @@ mod tests {
             serde_json::from_str(&report_json).expect("report deserializes");
         assert_eq!(restored_report, report);
         let legacy_report_json = report_json
+            .replace("\"backend_has_address\":false,", "")
             .replace("\"is_order_request\":true,", "")
-            .replace("\"is_raw_transaction_request\":false,", "");
+            .replace("\"is_raw_transaction_request\":false,", "")
+            .replace("\"transaction_has_sender\":false,", "")
+            .replace("\"transaction_has_nonce\":false,", "")
+            .replace("\"transaction_has_gas\":false,", "")
+            .replace("\"transaction_has_any_fee\":false,", "")
+            .replace("\"transaction_has_chain_id\":false,", "")
+            .replace("\"transaction_has_selector\":false,", "");
         let restored_legacy_report: ExternalSigningRequestReport =
             serde_json::from_str(&legacy_report_json).expect("legacy report deserializes");
+        assert!(!restored_legacy_report.backend_has_address);
         assert!(!restored_legacy_report.is_order_request);
         assert!(!restored_legacy_report.is_raw_transaction_request);
+        assert!(!restored_legacy_report.transaction_has_sender);
+        assert!(!restored_legacy_report.transaction_has_nonce);
+        assert!(!restored_legacy_report.transaction_has_gas);
+        assert!(!restored_legacy_report.transaction_has_any_fee);
+        assert!(!restored_legacy_report.transaction_has_chain_id);
+        assert!(!restored_legacy_report.transaction_has_selector);
         assert_eq!(
             ExternalSigningRequest::order("", backend, prepared.signing_request()),
             Err(SignerBackendConfigError::EmptyRequestId)
@@ -1337,6 +1387,8 @@ mod tests {
         assert_eq!(report.request_id, "tx-1");
         assert_eq!(report.backend_kind, SignerBackendKind::Relayer);
         assert_eq!(report.backend_key_id, "relayer-1");
+        assert_eq!(report.backend_address, None);
+        assert!(!report.backend_has_address);
         assert_eq!(
             report.payload_kind,
             ExternalSigningPayloadKind::RawTransaction
@@ -1358,13 +1410,20 @@ mod tests {
             Some("0x3b9aca00")
         );
         assert_eq!(report.transaction_chain_id.as_deref(), Some("0x2b67"));
+        assert!(report.transaction_has_sender);
+        assert!(report.transaction_has_nonce);
+        assert!(report.transaction_has_gas);
+        assert!(report.transaction_has_any_fee);
+        assert!(report.transaction_has_chain_id);
         assert!(report.transaction_uses_legacy_gas_price);
         assert!(report.transaction_uses_eip1559_fees);
         assert_eq!(report.transaction_selector.as_deref(), Some("0x12345678"));
+        assert!(report.transaction_has_selector);
         assert_eq!(report.transaction_calldata_bytes, Some(4));
         assert_eq!(report.order_hash, None);
         let report_json = serde_json::to_string(&report).expect("serialize raw signing report");
         assert!(report_json.contains("\"transaction_value\":\"0x7b\""));
+        assert!(report_json.contains("\"transaction_has_any_fee\":true"));
         assert!(report_json.contains("\"transaction_uses_eip1559_fees\":true"));
         assert!(report_json.contains("\"is_order_request\":false"));
         assert!(report_json.contains("\"is_raw_transaction_request\":true"));
@@ -1372,12 +1431,26 @@ mod tests {
             serde_json::from_str(&report_json).expect("deserialize raw signing report");
         assert_eq!(restored_report, report);
         let legacy_report_json = report_json
+            .replace("\"backend_has_address\":false,", "")
             .replace("\"is_order_request\":false,", "")
-            .replace("\"is_raw_transaction_request\":true,", "");
+            .replace("\"is_raw_transaction_request\":true,", "")
+            .replace("\"transaction_has_sender\":true,", "")
+            .replace("\"transaction_has_nonce\":true,", "")
+            .replace("\"transaction_has_gas\":true,", "")
+            .replace("\"transaction_has_any_fee\":true,", "")
+            .replace("\"transaction_has_chain_id\":true,", "")
+            .replace("\"transaction_has_selector\":true,", "");
         let restored_legacy_report: ExternalSigningRequestReport =
             serde_json::from_str(&legacy_report_json).expect("deserialize legacy raw report");
+        assert!(!restored_legacy_report.backend_has_address);
         assert!(!restored_legacy_report.is_order_request);
         assert!(!restored_legacy_report.is_raw_transaction_request);
+        assert!(!restored_legacy_report.transaction_has_sender);
+        assert!(!restored_legacy_report.transaction_has_nonce);
+        assert!(!restored_legacy_report.transaction_has_gas);
+        assert!(!restored_legacy_report.transaction_has_any_fee);
+        assert!(!restored_legacy_report.transaction_has_chain_id);
+        assert!(!restored_legacy_report.transaction_has_selector);
         assert!(matches!(
             external.payload,
             ExternalSigningPayload::RawTransaction(RawTransactionSigningRequest { .. })
