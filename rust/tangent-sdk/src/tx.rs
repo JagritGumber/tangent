@@ -239,6 +239,31 @@ pub struct CallReturnBatch {
     pub returns: Vec<CallReturn>,
 }
 
+/// Compact review shape for one transport-returned contract call payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallReturnSummary {
+    pub data_bytes: usize,
+    #[serde(default)]
+    pub is_empty: bool,
+}
+
+/// Compact review shape for an ordered batch of transport-returned call data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallReturnBatchSummary {
+    pub len: usize,
+    pub is_empty: bool,
+    #[serde(default)]
+    pub has_returns: bool,
+    pub total_data_bytes: usize,
+    pub empty_returns: usize,
+    #[serde(default)]
+    pub has_empty_returns: bool,
+    pub non_empty_returns: usize,
+    #[serde(default)]
+    pub all_returns_empty: bool,
+    pub returns: Vec<CallReturnSummary>,
+}
+
 /// Transaction hash returned by a signer, relayer, or JSON-RPC transport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TxHash(#[serde(with = "tx_hash_hex")] pub B256);
@@ -1816,6 +1841,14 @@ impl CallReturn {
     }
 
     #[must_use]
+    pub fn summary(&self) -> CallReturnSummary {
+        CallReturnSummary {
+            data_bytes: self.data_len(),
+            is_empty: self.is_empty(),
+        }
+    }
+
+    #[must_use]
     pub fn data_len(&self) -> usize {
         self.data.len()
     }
@@ -1870,6 +1903,30 @@ impl CallReturnBatch {
     #[must_use]
     pub fn into_returns(self) -> Vec<CallReturn> {
         self.returns
+    }
+
+    #[must_use]
+    pub fn summary(&self) -> CallReturnBatchSummary {
+        let returns = self
+            .returns
+            .iter()
+            .map(CallReturn::summary)
+            .collect::<Vec<_>>();
+        let total_data_bytes = returns.iter().map(|summary| summary.data_bytes).sum();
+        let empty_returns = returns.iter().filter(|summary| summary.is_empty).count();
+        let non_empty_returns = returns.len().saturating_sub(empty_returns);
+
+        CallReturnBatchSummary {
+            len: returns.len(),
+            is_empty: returns.is_empty(),
+            has_returns: !returns.is_empty(),
+            total_data_bytes,
+            empty_returns,
+            has_empty_returns: empty_returns > 0,
+            non_empty_returns,
+            all_returns_empty: !returns.is_empty() && non_empty_returns == 0,
+            returns,
+        }
     }
 
     #[must_use]
@@ -2950,10 +3007,24 @@ mod tests {
         assert_eq!(empty.data_len(), 0);
         assert_eq!(empty.data_hex(), "0x");
         assert_eq!(empty.as_bytes(), &[] as &[u8]);
+        assert_eq!(
+            empty.summary(),
+            CallReturnSummary {
+                data_bytes: 0,
+                is_empty: true,
+            }
+        );
 
         let value = CallReturn::from_hex("0x1234").expect("prefixed return");
         assert_eq!(value, CallReturn::new(vec![0x12, 0x34]));
         assert_eq!(value.as_bytes(), &[0x12, 0x34]);
+        assert_eq!(
+            value.summary(),
+            CallReturnSummary {
+                data_bytes: 2,
+                is_empty: false,
+            }
+        );
         assert_eq!(CallReturn::from_hex("1234").expect("bare return"), value);
         assert_eq!(
             serde_json::to_string(&value).expect("serialize"),
@@ -2977,9 +3048,82 @@ mod tests {
         assert_eq!(batch.len(), 2);
         assert!(!batch.is_empty());
         assert_eq!(
+            batch.summary(),
+            CallReturnBatchSummary {
+                len: 2,
+                is_empty: false,
+                has_returns: true,
+                total_data_bytes: 2,
+                empty_returns: 1,
+                has_empty_returns: true,
+                non_empty_returns: 1,
+                all_returns_empty: false,
+                returns: vec![
+                    CallReturnSummary {
+                        data_bytes: 0,
+                        is_empty: true,
+                    },
+                    CallReturnSummary {
+                        data_bytes: 2,
+                        is_empty: false,
+                    },
+                ],
+            }
+        );
+        assert_eq!(
             batch.data_hexes(),
             vec!["0x".to_owned(), "0x1234".to_owned()]
         );
+        let summary_json = serde_json::to_string(&batch.summary()).expect("summary serializes");
+        assert!(summary_json.contains("\"has_returns\":true"));
+        assert!(summary_json.contains("\"has_empty_returns\":true"));
+        let restored_summary: CallReturnBatchSummary =
+            serde_json::from_str(&summary_json).expect("summary deserializes");
+        assert_eq!(restored_summary, batch.summary());
+        let mut legacy_summary_json =
+            serde_json::to_value(batch.summary()).expect("summary value serializes");
+        let legacy_summary_object = legacy_summary_json
+            .as_object_mut()
+            .expect("summary value object");
+        legacy_summary_object.remove("has_returns");
+        legacy_summary_object.remove("has_empty_returns");
+        legacy_summary_object.remove("all_returns_empty");
+        let legacy_returns = legacy_summary_object
+            .get_mut("returns")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("summary returns array");
+        for summary in legacy_returns {
+            summary
+                .as_object_mut()
+                .expect("return summary object")
+                .remove("is_empty");
+        }
+        let legacy_summary: CallReturnBatchSummary =
+            serde_json::from_value(legacy_summary_json).expect("legacy summary deserializes");
+        assert!(!legacy_summary.has_returns);
+        assert!(!legacy_summary.has_empty_returns);
+        assert!(!legacy_summary.all_returns_empty);
+        assert!(legacy_summary
+            .returns
+            .iter()
+            .all(|summary| !summary.is_empty));
+        let empty_batch = CallReturnBatch::new(Vec::new());
+        assert_eq!(
+            empty_batch.summary(),
+            CallReturnBatchSummary {
+                len: 0,
+                is_empty: true,
+                has_returns: false,
+                total_data_bytes: 0,
+                empty_returns: 0,
+                has_empty_returns: false,
+                non_empty_returns: 0,
+                all_returns_empty: false,
+                returns: Vec::new(),
+            }
+        );
+        let all_empty_batch = CallReturnBatch::from_hex(["0x", "0x"]).expect("all empty returns");
+        assert!(all_empty_batch.summary().all_returns_empty);
         assert_eq!(
             serde_json::to_string(&batch).expect("serialize batch"),
             "{\"returns\":[{\"data\":\"0x\"},{\"data\":\"0x1234\"}]}"

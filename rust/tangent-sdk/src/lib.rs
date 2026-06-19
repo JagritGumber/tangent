@@ -151,10 +151,10 @@ pub use signing::{
     SignerBackendConfigError, SignerBackendKind, SignerBackendMetadata, SignerBackendReport,
 };
 pub use tx::{
-    CallDataError, CallReturn, CallReturnBatch, CallReturnError, JsonRpcBatchError,
-    JsonRpcErrorObject, JsonRpcRequest, JsonRpcRequestError, JsonRpcResponse, JsonRpcResponseError,
-    JsonRpcResultDecodeError, RpcBlockTag, RpcQuantityError, SignedRawTransaction,
-    SignedRawTransactionError, TxBatchRequestMetadata, TxConfirmationPlan,
+    CallDataError, CallReturn, CallReturnBatch, CallReturnBatchSummary, CallReturnError,
+    CallReturnSummary, JsonRpcBatchError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcRequestError,
+    JsonRpcResponse, JsonRpcResponseError, JsonRpcResultDecodeError, RpcBlockTag, RpcQuantityError,
+    SignedRawTransaction, SignedRawTransactionError, TxBatchRequestMetadata, TxConfirmationPlan,
     TxConfirmationPlanSummary, TxConfirmationPolicy, TxConfirmationStatus, TxFeePolicy, TxHash,
     TxHashError, TxPreflight, TxPreflightError, TxPreflightSummary, TxReceipt, TxReceiptError,
     TxReceiptSummary, TxRequestMetadata, TxRequestMetadataError, TxSubmissionPlan,
