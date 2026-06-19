@@ -152,8 +152,9 @@ pub use signing::{
 };
 pub use tx::{
     CallDataError, CallReturn, CallReturnBatch, CallReturnBatchSummary, CallReturnError,
-    CallReturnSummary, JsonRpcBatchError, JsonRpcErrorObject, JsonRpcRequest, JsonRpcRequestError,
-    JsonRpcResponse, JsonRpcResponseError, JsonRpcResultDecodeError, RpcBlockTag, RpcQuantityError,
+    CallReturnSummary, JsonRpcBatchError, JsonRpcErrorObject, JsonRpcRequest,
+    JsonRpcRequestBatchSummary, JsonRpcRequestError, JsonRpcRequestSummary, JsonRpcResponse,
+    JsonRpcResponseError, JsonRpcResultDecodeError, RpcBlockTag, RpcQuantityError,
     SignedRawTransaction, SignedRawTransactionError, TxBatchRequestMetadata, TxConfirmationPlan,
     TxConfirmationPlanSummary, TxConfirmationPolicy, TxConfirmationStatus, TxFeePolicy, TxHash,
     TxHashError, TxPreflight, TxPreflightError, TxPreflightSummary, TxReceipt, TxReceiptError,

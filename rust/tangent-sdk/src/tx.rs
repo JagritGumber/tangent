@@ -124,6 +124,36 @@ pub struct JsonRpcRequest {
     pub params: Vec<serde_json::Value>,
 }
 
+/// Compact review shape for one JSON-RPC request envelope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonRpcRequestSummary {
+    pub id: u64,
+    pub method: String,
+    pub param_count: usize,
+    #[serde(default)]
+    pub has_params: bool,
+}
+
+/// Compact review shape for an ordered JSON-RPC request batch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonRpcRequestBatchSummary {
+    pub len: usize,
+    pub is_empty: bool,
+    #[serde(default)]
+    pub has_requests: bool,
+    pub first_id: Option<u64>,
+    pub last_id: Option<u64>,
+    pub methods: Vec<String>,
+    pub unique_methods: usize,
+    #[serde(default)]
+    pub has_multiple_methods: bool,
+    pub total_params: usize,
+    pub duplicate_ids: usize,
+    #[serde(default)]
+    pub has_duplicate_ids: bool,
+    pub requests: Vec<JsonRpcRequestSummary>,
+}
+
 /// JSON-RPC 2.0 response envelope returned by a provider or relayer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonRpcResponse<T> {
@@ -1378,6 +1408,52 @@ impl JsonRpcRequest {
         }
     }
 
+    #[must_use]
+    pub fn summary(&self) -> JsonRpcRequestSummary {
+        JsonRpcRequestSummary {
+            id: self.id,
+            method: self.method.clone(),
+            param_count: self.params.len(),
+            has_params: !self.params.is_empty(),
+        }
+    }
+
+    #[must_use]
+    pub fn summarize_batch<'a>(
+        requests: impl IntoIterator<Item = &'a JsonRpcRequest>,
+    ) -> JsonRpcRequestBatchSummary {
+        let requests = requests
+            .into_iter()
+            .map(JsonRpcRequest::summary)
+            .collect::<Vec<_>>();
+        let first_id = requests.first().map(|request| request.id);
+        let last_id = requests.last().map(|request| request.id);
+        let total_params = requests.iter().map(|request| request.param_count).sum();
+        let mut seen_ids = BTreeMap::<u64, usize>::new();
+        let mut method_counts = BTreeMap::<String, usize>::new();
+        for request in &requests {
+            *seen_ids.entry(request.id).or_default() += 1;
+            *method_counts.entry(request.method.clone()).or_default() += 1;
+        }
+        let duplicate_ids = seen_ids.values().filter(|count| **count > 1).count();
+        let methods = method_counts.into_keys().collect::<Vec<_>>();
+
+        JsonRpcRequestBatchSummary {
+            len: requests.len(),
+            is_empty: requests.is_empty(),
+            has_requests: !requests.is_empty(),
+            first_id,
+            last_id,
+            unique_methods: methods.len(),
+            has_multiple_methods: methods.len() > 1,
+            methods,
+            total_params,
+            duplicate_ids,
+            has_duplicate_ids: duplicate_ids > 0,
+            requests,
+        }
+    }
+
     /// Build an `eth_call` request from a call query.
     #[must_use]
     pub fn eth_call(id: u64, query: &UnsignedCallQuery) -> Self {
@@ -2370,6 +2446,15 @@ mod tests {
         assert_eq!(call_request.jsonrpc, "2.0");
         assert_eq!(call_request.method, "eth_call");
         assert_eq!(
+            call_request.summary(),
+            JsonRpcRequestSummary {
+                id: 1,
+                method: "eth_call".to_owned(),
+                param_count: 2,
+                has_params: true,
+            }
+        );
+        assert_eq!(
             serde_json::to_value(&call_request).expect("serialize eth_call"),
             serde_json::json!({
                 "jsonrpc": "2.0",
@@ -2400,6 +2485,54 @@ mod tests {
         assert_eq!(batch[1].id, 8);
         assert_eq!(batch[0].method, "eth_call");
         assert_eq!(batch[0].params[1], serde_json::json!("latest"));
+        let batch_summary = JsonRpcRequest::summarize_batch(&batch);
+        assert_eq!(batch_summary.len, 2);
+        assert!(!batch_summary.is_empty);
+        assert!(batch_summary.has_requests);
+        assert_eq!(batch_summary.first_id, Some(7));
+        assert_eq!(batch_summary.last_id, Some(8));
+        assert_eq!(batch_summary.methods, vec!["eth_call".to_owned()]);
+        assert_eq!(batch_summary.unique_methods, 1);
+        assert!(!batch_summary.has_multiple_methods);
+        assert_eq!(batch_summary.total_params, 4);
+        assert_eq!(batch_summary.duplicate_ids, 0);
+        assert!(!batch_summary.has_duplicate_ids);
+        assert_eq!(batch_summary.requests[0], batch[0].summary());
+        let batch_summary_json =
+            serde_json::to_string(&batch_summary).expect("request batch summary serializes");
+        assert!(batch_summary_json.contains("\"has_requests\":true"));
+        assert!(batch_summary_json.contains("\"has_duplicate_ids\":false"));
+        let restored_batch_summary: JsonRpcRequestBatchSummary =
+            serde_json::from_str(&batch_summary_json).expect("request batch summary deserializes");
+        assert_eq!(restored_batch_summary, batch_summary);
+        let mut legacy_batch_summary_json =
+            serde_json::to_value(&batch_summary).expect("request batch summary value");
+        let legacy_batch_summary_object = legacy_batch_summary_json
+            .as_object_mut()
+            .expect("request batch summary object");
+        legacy_batch_summary_object.remove("has_requests");
+        legacy_batch_summary_object.remove("has_multiple_methods");
+        legacy_batch_summary_object.remove("has_duplicate_ids");
+        let legacy_requests = legacy_batch_summary_object
+            .get_mut("requests")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("request summaries array");
+        for request in legacy_requests {
+            request
+                .as_object_mut()
+                .expect("request summary object")
+                .remove("has_params");
+        }
+        let legacy_batch_summary: JsonRpcRequestBatchSummary =
+            serde_json::from_value(legacy_batch_summary_json)
+                .expect("legacy request batch summary");
+        assert!(!legacy_batch_summary.has_requests);
+        assert!(!legacy_batch_summary.has_multiple_methods);
+        assert!(!legacy_batch_summary.has_duplicate_ids);
+        assert!(legacy_batch_summary
+            .requests
+            .iter()
+            .all(|request| !request.has_params));
         assert_eq!(
             JsonRpcRequest::eth_call_batch([&call, &other], RpcBlockTag::Latest, u64::MAX)
                 .expect_err("second request id overflows"),
@@ -2490,6 +2623,33 @@ mod tests {
                 12,
                 &SignedRawTransaction::from_hex("0x02abcd").expect("signed tx")
             )
+        );
+        let chain_request = JsonRpcRequest::eth_chain_id(1);
+        let block_request = JsonRpcRequest::eth_block_number(1);
+        let gas_price_request = JsonRpcRequest::eth_gas_price(2);
+        let mixed_summary =
+            JsonRpcRequest::summarize_batch([&chain_request, &block_request, &gas_price_request]);
+        assert_eq!(mixed_summary.len, 3);
+        assert_eq!(mixed_summary.methods.len(), 3);
+        assert!(mixed_summary.has_multiple_methods);
+        assert_eq!(mixed_summary.duplicate_ids, 1);
+        assert!(mixed_summary.has_duplicate_ids);
+        assert_eq!(
+            JsonRpcRequest::summarize_batch(std::iter::empty::<&JsonRpcRequest>()),
+            JsonRpcRequestBatchSummary {
+                len: 0,
+                is_empty: true,
+                has_requests: false,
+                first_id: None,
+                last_id: None,
+                methods: Vec::new(),
+                unique_methods: 0,
+                has_multiple_methods: false,
+                total_params: 0,
+                duplicate_ids: 0,
+                has_duplicate_ids: false,
+                requests: Vec::new(),
+            }
         );
     }
 
