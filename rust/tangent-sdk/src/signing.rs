@@ -88,7 +88,11 @@ pub struct SignerBackendReport {
     pub secret_metadata_keys: Vec<String>,
     pub metadata_count: usize,
     pub secret_metadata_count: usize,
+    #[serde(default)]
     pub has_address: bool,
+    #[serde(default)]
+    pub has_metadata: bool,
+    #[serde(default)]
     pub has_secret_metadata: bool,
 }
 
@@ -328,6 +332,7 @@ impl SignerBackendConfig {
             metadata_count: metadata_keys.len(),
             secret_metadata_count: secret_metadata_keys.len(),
             has_address: self.address.is_some(),
+            has_metadata: !metadata_keys.is_empty(),
             has_secret_metadata: !secret_metadata_keys.is_empty(),
             metadata_keys,
             secret_metadata_keys,
@@ -979,6 +984,7 @@ mod tests {
         assert_eq!(report.metadata_count, 2);
         assert_eq!(report.secret_metadata_count, 1);
         assert!(report.has_address);
+        assert!(report.has_metadata);
         assert!(report.has_secret_metadata);
         let report_json = serde_json::to_string(&report).expect("report serializes");
         assert!(!report_json.contains("entity-id"));
@@ -986,6 +992,19 @@ mod tests {
         let restored_report: SignerBackendReport =
             serde_json::from_str(&report_json).expect("report deserializes");
         assert_eq!(restored_report, report);
+        let mut legacy_report_json =
+            serde_json::to_value(&report).expect("report value serializes");
+        let legacy_report_object = legacy_report_json
+            .as_object_mut()
+            .expect("signer backend report object");
+        legacy_report_object.remove("has_address");
+        legacy_report_object.remove("has_metadata");
+        legacy_report_object.remove("has_secret_metadata");
+        let legacy_report: SignerBackendReport =
+            serde_json::from_value(legacy_report_json).expect("legacy report deserializes");
+        assert!(!legacy_report.has_address);
+        assert!(!legacy_report.has_metadata);
+        assert!(!legacy_report.has_secret_metadata);
         assert_eq!(
             backend.clone().with_metadata("", "value", false),
             Err(SignerBackendConfigError::EmptyMetadataKey)

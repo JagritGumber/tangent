@@ -104,6 +104,12 @@ pub struct SignerBackendConfigReport {
     pub secret_metadata_keys: Vec<String>,
     pub metadata_count: usize,
     pub secret_metadata_count: usize,
+    #[serde(default)]
+    pub has_address: bool,
+    #[serde(default)]
+    pub has_metadata: bool,
+    #[serde(default)]
+    pub has_secret_metadata: bool,
 }
 
 /// Parsed manifest plus transport-neutral client configuration.
@@ -1406,6 +1412,9 @@ impl SignerBackendConfigReport {
             address: backend.address,
             metadata_count: metadata_keys.len(),
             secret_metadata_count: secret_metadata_keys.len(),
+            has_address: backend.address.is_some(),
+            has_metadata: !metadata_keys.is_empty(),
+            has_secret_metadata: !secret_metadata_keys.is_empty(),
             metadata_keys,
             secret_metadata_keys,
         }
@@ -3461,6 +3470,9 @@ mod tests {
         );
         assert_eq!(report.signer_backends[0].metadata_count, 2);
         assert_eq!(report.signer_backends[0].secret_metadata_count, 1);
+        assert!(report.signer_backends[0].has_address);
+        assert!(report.signer_backends[0].has_metadata);
+        assert!(report.signer_backends[0].has_secret_metadata);
         let report_json = serde_json::to_string(&report).expect("config report serializes");
         assert!(report_json.contains("api-key"));
         assert!(!report_json.contains("entity-id"));
@@ -3481,12 +3493,24 @@ mod tests {
             .expect("config report object");
         legacy_report_object.remove("has_signer_backends");
         legacy_report_object.remove("has_multiple_signer_backend_kinds");
+        let signer_backend_report = legacy_report_object
+            .get_mut("signer_backends")
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|backends| backends.first_mut())
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("signer backend report object");
+        signer_backend_report.remove("has_address");
+        signer_backend_report.remove("has_metadata");
+        signer_backend_report.remove("has_secret_metadata");
         let legacy_report: TangentClientConfigReport =
             serde_json::from_value(legacy_report_json).expect("legacy config report deserializes");
         assert_eq!(legacy_report.endpoint.static_rpc_auth_headers, 0);
         assert!(!legacy_report.endpoint.has_static_rpc_auth_header);
         assert!(!legacy_report.has_signer_backends);
         assert!(!legacy_report.has_multiple_signer_backend_kinds);
+        assert!(!legacy_report.signer_backends[0].has_address);
+        assert!(!legacy_report.signer_backends[0].has_metadata);
+        assert!(!legacy_report.signer_backends[0].has_secret_metadata);
 
         let (adapter_backend, adapter_client) = config
             .external_signer_adapter("wallet-1", "circle-client")
