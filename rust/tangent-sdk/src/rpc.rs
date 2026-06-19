@@ -64,6 +64,25 @@ pub struct JsonRpcRetryStats {
     pub batch_retries: u64,
 }
 
+/// Compact review shape for JSON-RPC retry counters.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonRpcRetryStatsSummary {
+    pub total_attempts: u64,
+    #[serde(default)]
+    pub has_attempts: bool,
+    pub total_retries: u64,
+    #[serde(default)]
+    pub has_retries: bool,
+    #[serde(default)]
+    pub used_single_requests: bool,
+    #[serde(default)]
+    pub used_batch_requests: bool,
+    #[serde(default)]
+    pub retried_single_requests: bool,
+    #[serde(default)]
+    pub retried_batch_requests: bool,
+}
+
 /// Capped exponential backoff values for caller-managed retry scheduling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonRpcBackoffPolicy {
@@ -363,6 +382,25 @@ impl JsonRpcBackoffPolicy {
     }
 }
 
+impl JsonRpcRetryStats {
+    #[must_use]
+    pub const fn summary(self) -> JsonRpcRetryStatsSummary {
+        let total_attempts = self.single_attempts.saturating_add(self.batch_attempts);
+        let total_retries = self.single_retries.saturating_add(self.batch_retries);
+
+        JsonRpcRetryStatsSummary {
+            total_attempts,
+            has_attempts: total_attempts > 0,
+            total_retries,
+            has_retries: total_retries > 0,
+            used_single_requests: self.single_attempts > 0,
+            used_batch_requests: self.batch_attempts > 0,
+            retried_single_requests: self.single_retries > 0,
+            retried_batch_requests: self.batch_retries > 0,
+        }
+    }
+}
+
 impl<T> RetryingJsonRpcTransport<T> {
     #[must_use]
     pub const fn new(inner: T, policy: JsonRpcRetryPolicy) -> Self {
@@ -391,6 +429,11 @@ impl<T> RetryingJsonRpcTransport<T> {
     #[must_use]
     pub const fn stats(&self) -> JsonRpcRetryStats {
         self.stats
+    }
+
+    #[must_use]
+    pub const fn stats_summary(&self) -> JsonRpcRetryStatsSummary {
+        self.stats.summary()
     }
 
     #[must_use]
@@ -1261,6 +1304,7 @@ mod tests {
     #[derive(Debug, Clone, Default)]
     struct FlakyTransport {
         single_outcomes: VecDeque<Result<serde_json::Value, String>>,
+        batch_outcomes: VecDeque<Result<Vec<serde_json::Value>, String>>,
         seen: Vec<JsonRpcRequest>,
     }
 
@@ -1270,6 +1314,17 @@ mod tests {
         ) -> Self {
             Self {
                 single_outcomes: outcomes.into_iter().collect(),
+                batch_outcomes: VecDeque::new(),
+                seen: Vec::new(),
+            }
+        }
+
+        fn with_batch_outcomes(
+            outcomes: impl IntoIterator<Item = Result<Vec<serde_json::Value>, String>>,
+        ) -> Self {
+            Self {
+                single_outcomes: VecDeque::new(),
+                batch_outcomes: outcomes.into_iter().collect(),
                 seen: Vec::new(),
             }
         }
@@ -1319,6 +1374,21 @@ mod tests {
                 .pop_front()
                 .ok_or_else(|| format!("missing response for {}", request.method))??;
             serde_json::from_value(value).map_err(|error| error.to_string())
+        }
+
+        fn send_batch<T: DeserializeOwned + Default>(
+            &mut self,
+            requests: &[JsonRpcRequest],
+        ) -> Result<Vec<JsonRpcResponse<T>>, Self::Error> {
+            self.seen.extend(requests.iter().cloned());
+            let values = self
+                .batch_outcomes
+                .pop_front()
+                .ok_or_else(|| "missing batch response".to_owned())??;
+            values
+                .into_iter()
+                .map(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
+                .collect()
         }
     }
 
@@ -1408,6 +1478,47 @@ mod tests {
                 batch_retries: 0,
             }
         );
+        let summary = retrying.stats_summary();
+        assert_eq!(
+            summary,
+            JsonRpcRetryStatsSummary {
+                total_attempts: 2,
+                has_attempts: true,
+                total_retries: 1,
+                has_retries: true,
+                used_single_requests: true,
+                used_batch_requests: false,
+                retried_single_requests: true,
+                retried_batch_requests: false,
+            }
+        );
+        let summary_json = serde_json::to_string(&summary).expect("retry summary serializes");
+        assert!(summary_json.contains("\"has_retries\":true"));
+        let restored_summary: JsonRpcRetryStatsSummary =
+            serde_json::from_str(&summary_json).expect("retry summary deserializes");
+        assert_eq!(restored_summary, summary);
+        let mut legacy_summary_json = serde_json::to_value(summary).expect("retry summary value");
+        let legacy_summary_object = legacy_summary_json
+            .as_object_mut()
+            .expect("retry summary object");
+        legacy_summary_object.remove("has_attempts");
+        legacy_summary_object.remove("has_retries");
+        legacy_summary_object.remove("used_single_requests");
+        legacy_summary_object.remove("used_batch_requests");
+        legacy_summary_object.remove("retried_single_requests");
+        legacy_summary_object.remove("retried_batch_requests");
+        let legacy_summary: JsonRpcRetryStatsSummary =
+            serde_json::from_value(legacy_summary_json).expect("legacy retry summary");
+        assert!(!legacy_summary.has_attempts);
+        assert!(!legacy_summary.has_retries);
+        assert!(!legacy_summary.used_single_requests);
+        assert!(!legacy_summary.used_batch_requests);
+        assert!(!legacy_summary.retried_single_requests);
+        assert!(!legacy_summary.retried_batch_requests);
+        assert_eq!(
+            JsonRpcRetryStats::default().summary(),
+            JsonRpcRetryStatsSummary::default()
+        );
         assert_eq!(retrying.inner().seen.len(), 2);
     }
 
@@ -1436,6 +1547,62 @@ mod tests {
         let retrying = executor.into_transport();
         assert_eq!(retrying.stats().single_attempts, 2);
         assert_eq!(retrying.stats().single_retries, 1);
+        assert!(retrying.stats_summary().retried_single_requests);
+    }
+
+    #[test]
+    fn retrying_transport_summarizes_batch_retries() {
+        let first = UnsignedCall {
+            to: Address::repeat_byte(0x11),
+            data: vec![0xaa],
+        };
+        let second = UnsignedCall {
+            to: Address::repeat_byte(0x22),
+            data: vec![0xbb],
+        };
+        let transport = FlakyTransport::with_batch_outcomes([
+            Ok(vec![json!({
+                "jsonrpc":"2.0",
+                "id":1,
+                "error":{"code":-32603,"message":"provider unavailable"}
+            })]),
+            Ok(vec![
+                json!({"jsonrpc":"2.0","id":2,"result":"0x02"}),
+                json!({"jsonrpc":"2.0","id":1,"result":"0x01"}),
+            ]),
+        ]);
+        let retrying = RetryingJsonRpcTransport::new(transport, JsonRpcRetryPolicy::new(2));
+        let mut executor = JsonRpcExecutor::new(retrying);
+
+        let returns = executor
+            .call_batch(&[first, second], RpcBlockTag::Latest)
+            .expect("retry batch succeeds");
+
+        assert_eq!(returns.data_hexes(), vec!["0x01", "0x02"]);
+        let retrying = executor.into_transport();
+        assert_eq!(
+            retrying.stats(),
+            JsonRpcRetryStats {
+                single_attempts: 0,
+                batch_attempts: 2,
+                single_retries: 0,
+                batch_retries: 1,
+            }
+        );
+        assert_eq!(
+            retrying.stats_summary(),
+            JsonRpcRetryStatsSummary {
+                total_attempts: 2,
+                has_attempts: true,
+                total_retries: 1,
+                has_retries: true,
+                used_single_requests: false,
+                used_batch_requests: true,
+                retried_single_requests: false,
+                retried_batch_requests: true,
+            }
+        );
+        assert_eq!(retrying.inner().seen.len(), 4);
     }
 
     #[test]

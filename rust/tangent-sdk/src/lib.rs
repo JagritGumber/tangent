@@ -132,11 +132,11 @@ pub use projection::{
 };
 pub use rpc::{
     JsonRpcBackoffPolicy, JsonRpcExecutor, JsonRpcExecutorError, JsonRpcRetryPolicy,
-    JsonRpcRetryStats, JsonRpcTransport, RetryingJsonRpcTransport, TxConfirmationBatchReport,
-    TxConfirmationBatchSnapshot, TxConfirmationBatchStatus, TxConfirmationSnapshot,
-    TxConfirmationSnapshotReport, TxWorkflowBatchResumePlan, TxWorkflowBatchResumePlanSummary,
-    TxWorkflowBatchSubmission, TxWorkflowBatchSubmissionReport, TxWorkflowError,
-    TxWorkflowExecutor, TxWorkflowSubmission, TxWorkflowSubmissionReport,
+    JsonRpcRetryStats, JsonRpcRetryStatsSummary, JsonRpcTransport, RetryingJsonRpcTransport,
+    TxConfirmationBatchReport, TxConfirmationBatchSnapshot, TxConfirmationBatchStatus,
+    TxConfirmationSnapshot, TxConfirmationSnapshotReport, TxWorkflowBatchResumePlan,
+    TxWorkflowBatchResumePlanSummary, TxWorkflowBatchSubmission, TxWorkflowBatchSubmissionReport,
+    TxWorkflowError, TxWorkflowExecutor, TxWorkflowSubmission, TxWorkflowSubmissionReport,
 };
 pub use settlement::{
     MarginStatus, PositionStatus, SettlementReadPlan, SettlementStatus,
