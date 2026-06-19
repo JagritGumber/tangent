@@ -212,6 +212,26 @@ pub struct TxWorkflowSubmissionReport {
     pub confirmation_plan: TxConfirmationPlan,
     pub confirmation_plan_summary: TxConfirmationPlanSummary,
     pub plan_summary: TxSubmissionPlanSummary,
+    #[serde(default)]
+    pub has_sender: bool,
+    #[serde(default)]
+    pub has_selector: bool,
+    #[serde(default)]
+    pub has_calldata: bool,
+    #[serde(default)]
+    pub has_nonce: bool,
+    #[serde(default)]
+    pub has_gas: bool,
+    #[serde(default)]
+    pub has_legacy_gas_price: bool,
+    #[serde(default)]
+    pub has_eip1559_fees: bool,
+    #[serde(default)]
+    pub has_chain_id: bool,
+    #[serde(default)]
+    pub has_confirmation_timeout: bool,
+    #[serde(default)]
+    pub has_submitted_at_block: bool,
 }
 
 /// Result of sequentially signing and submitting multiple prepared plans.
@@ -546,11 +566,25 @@ impl<T: JsonRpcTransport> JsonRpcTransport for RetryingJsonRpcTransport<T> {
 impl TxWorkflowSubmission {
     #[must_use]
     pub fn report(&self) -> TxWorkflowSubmissionReport {
+        let confirmation_plan_summary = self.confirmation_plan.summary();
+        let plan_summary = self.plan.summary();
+
         TxWorkflowSubmissionReport {
             transaction_hash: self.transaction_hash,
             confirmation_plan: self.confirmation_plan,
-            confirmation_plan_summary: self.confirmation_plan.summary(),
-            plan_summary: self.plan.summary(),
+            confirmation_plan_summary,
+            has_confirmation_timeout: confirmation_plan_summary.timeout_blocks.is_some(),
+            has_submitted_at_block: confirmation_plan_summary.submitted_at_block.is_some(),
+            has_sender: plan_summary.from.is_some(),
+            has_selector: plan_summary.selector.is_some(),
+            has_calldata: plan_summary.calldata_bytes.is_some_and(|bytes| bytes > 0),
+            has_nonce: plan_summary.nonce.is_some(),
+            has_gas: plan_summary.gas.is_some(),
+            has_legacy_gas_price: plan_summary.gas_price.is_some(),
+            has_eip1559_fees: plan_summary.max_fee_per_gas.is_some()
+                || plan_summary.max_priority_fee_per_gas.is_some(),
+            has_chain_id: plan_summary.chain_id.is_some(),
+            plan_summary,
         }
     }
 }
@@ -2289,9 +2323,20 @@ mod tests {
                 .request_count,
             2
         );
+        assert!(report.submissions[0].has_sender);
+        assert!(report.submissions[0].has_selector);
+        assert!(report.submissions[0].has_calldata);
+        assert!(report.submissions[0].has_nonce);
+        assert!(report.submissions[0].has_gas);
+        assert!(report.submissions[0].has_legacy_gas_price);
+        assert!(!report.submissions[0].has_eip1559_fees);
+        assert!(report.submissions[0].has_chain_id);
+        assert!(report.submissions[0].has_confirmation_timeout);
+        assert!(!report.submissions[0].has_submitted_at_block);
         let json = serde_json::to_string(&report).expect("workflow report serializes");
         assert!(json.contains("\"confirmation_plan_summary\""));
         assert!(json.contains("\"has_submissions\":true"));
+        assert!(json.contains("\"has_confirmation_timeout\":true"));
         let restored: TxWorkflowBatchSubmissionReport =
             serde_json::from_str(&json).expect("workflow report deserializes");
         assert_eq!(restored, report);
@@ -2300,9 +2345,40 @@ mod tests {
             .as_object_mut()
             .expect("workflow report object");
         legacy_report_object.remove("has_submissions");
+        let legacy_submissions = legacy_report_object
+            .get_mut("submissions")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("legacy workflow submissions");
+        for submission in legacy_submissions {
+            let submission_object = submission
+                .as_object_mut()
+                .expect("legacy workflow submission object");
+            submission_object.remove("has_sender");
+            submission_object.remove("has_selector");
+            submission_object.remove("has_calldata");
+            submission_object.remove("has_nonce");
+            submission_object.remove("has_gas");
+            submission_object.remove("has_legacy_gas_price");
+            submission_object.remove("has_eip1559_fees");
+            submission_object.remove("has_chain_id");
+            submission_object.remove("has_confirmation_timeout");
+            submission_object.remove("has_submitted_at_block");
+        }
         let legacy_report: TxWorkflowBatchSubmissionReport =
             serde_json::from_value(legacy_report_json).expect("legacy workflow report");
         assert!(!legacy_report.has_submissions);
+        assert!(legacy_report.submissions.iter().all(|submission| {
+            !submission.has_sender
+                && !submission.has_selector
+                && !submission.has_calldata
+                && !submission.has_nonce
+                && !submission.has_gas
+                && !submission.has_legacy_gas_price
+                && !submission.has_eip1559_fees
+                && !submission.has_chain_id
+                && !submission.has_confirmation_timeout
+                && !submission.has_submitted_at_block
+        }));
         let partial_batch = TxWorkflowBatchSubmission::new(vec![batch.submissions[0].clone()]);
         let resume = partial_batch.resume_plan(&[first_plan.clone(), second_plan.clone()]);
         assert_eq!(resume.original_len, 2);
