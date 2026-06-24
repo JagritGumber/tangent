@@ -72,7 +72,11 @@ pub struct KeeperPollingPlan {
 pub struct KeeperMaintenanceTransactionSummary {
     pub to: Address,
     pub selector: Option<String>,
+    #[serde(default)]
+    pub has_selector: bool,
     pub calldata_bytes: usize,
+    #[serde(default)]
+    pub has_calldata: bool,
 }
 
 /// Serializable summary of a caller-managed keeper polling pass.
@@ -87,12 +91,18 @@ pub struct KeeperPollingPlanSummary {
     #[serde(default)]
     pub event_query_summary: EventLogRpcQueryBatchSummary,
     pub first_event_from_block: Option<String>,
+    #[serde(default)]
+    pub has_first_event_from_block: bool,
     pub last_event_to_block: Option<String>,
+    #[serde(default)]
+    pub has_last_event_to_block: bool,
     pub maintenance_transaction_count: usize,
     #[serde(default)]
     pub has_maintenance_transactions: bool,
     pub maintenance_transactions: Vec<KeeperMaintenanceTransactionSummary>,
     pub maintenance_calldata_bytes: usize,
+    #[serde(default)]
+    pub has_maintenance_calldata: bool,
     pub should_scan_liquidations: bool,
     #[serde(default)]
     pub has_liquidation_scan: bool,
@@ -130,23 +140,28 @@ impl KeeperPollingPlan {
             .iter()
             .map(|tx| tx.calldata_bytes)
             .sum();
+        let first_event_from_block = self
+            .event_queries
+            .first()
+            .and_then(|query| query.from_block.clone());
+        let last_event_to_block = self
+            .event_queries
+            .last()
+            .and_then(|query| query.to_block.clone());
 
         KeeperPollingPlanSummary {
             event_query_count: self.event_queries.len(),
             has_event_queries: !self.event_queries.is_empty(),
             event_query_summary: EventLogRpcQuery::summarize_batch(&self.event_queries),
-            first_event_from_block: self
-                .event_queries
-                .first()
-                .and_then(|query| query.from_block.clone()),
-            last_event_to_block: self
-                .event_queries
-                .last()
-                .and_then(|query| query.to_block.clone()),
+            has_first_event_from_block: first_event_from_block.is_some(),
+            first_event_from_block,
+            has_last_event_to_block: last_event_to_block.is_some(),
+            last_event_to_block,
             maintenance_transaction_count: maintenance_transactions.len(),
             has_maintenance_transactions: !maintenance_transactions.is_empty(),
             maintenance_transactions,
             maintenance_calldata_bytes,
+            has_maintenance_calldata: maintenance_calldata_bytes > 0,
             should_scan_liquidations: self.should_scan_liquidations,
             has_liquidation_scan: self.should_scan_liquidations,
             has_work: self.has_work(),
@@ -162,10 +177,14 @@ impl KeeperPollingPlan {
 impl KeeperMaintenanceTransactionSummary {
     #[must_use]
     pub fn from_transaction(tx: &UnsignedTx) -> Self {
+        let selector = tx.selector_hex();
+        let calldata_bytes = tx.data_len();
         Self {
             to: tx.to,
-            selector: tx.selector_hex(),
-            calldata_bytes: tx.data_len(),
+            has_selector: selector.is_some(),
+            selector,
+            calldata_bytes,
+            has_calldata: calldata_bytes > 0,
         }
     }
 }
@@ -625,7 +644,9 @@ mod tests {
         assert_eq!(summary.event_query_summary.queries.len(), 3);
         assert_eq!(summary.event_query_summary.open_ended_queries, 0);
         assert_eq!(summary.first_event_from_block.as_deref(), Some("0x78"));
+        assert!(summary.has_first_event_from_block);
         assert_eq!(summary.last_event_to_block.as_deref(), Some("0x82"));
+        assert!(summary.has_last_event_to_block);
         assert_eq!(summary.maintenance_transaction_count, 1);
         assert!(summary.has_maintenance_transactions);
         assert_eq!(summary.maintenance_transactions.len(), 1);
@@ -637,16 +658,21 @@ mod tests {
             summary.maintenance_transactions[0].selector,
             polling.maintenance_transactions[0].selector_hex()
         );
+        assert!(summary.maintenance_transactions[0].has_selector);
         assert_eq!(
             summary.maintenance_calldata_bytes,
             polling.maintenance_transactions[0].data_len()
         );
+        assert!(summary.maintenance_transactions[0].has_calldata);
+        assert!(summary.has_maintenance_calldata);
         assert!(!summary.has_liquidation_scan);
         assert!(summary.has_work);
         let json = serde_json::to_string(&summary).expect("keeper summary serializes");
         assert!(json.contains("\"event_query_summary\""));
         assert!(json.contains("\"has_event_queries\":true"));
+        assert!(json.contains("\"has_first_event_from_block\":true"));
         assert!(json.contains("\"has_maintenance_transactions\":true"));
+        assert!(json.contains("\"has_maintenance_calldata\":true"));
         let restored: KeeperPollingPlanSummary =
             serde_json::from_str(&json).expect("keeper summary deserializes");
         assert_eq!(restored, summary);
@@ -654,8 +680,22 @@ mod tests {
         let legacy_object = legacy_json.as_object_mut().expect("keeper summary object");
         legacy_object.remove("has_event_queries");
         legacy_object.remove("event_query_summary");
+        legacy_object.remove("has_first_event_from_block");
+        legacy_object.remove("has_last_event_to_block");
         legacy_object.remove("has_maintenance_transactions");
+        legacy_object.remove("has_maintenance_calldata");
         legacy_object.remove("has_liquidation_scan");
+        let legacy_maintenance_transactions = legacy_object
+            .get_mut("maintenance_transactions")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("legacy maintenance transactions");
+        for transaction in legacy_maintenance_transactions {
+            let transaction_object = transaction
+                .as_object_mut()
+                .expect("legacy maintenance transaction");
+            transaction_object.remove("has_selector");
+            transaction_object.remove("has_calldata");
+        }
         let legacy: KeeperPollingPlanSummary =
             serde_json::from_value(legacy_json).expect("legacy keeper summary deserializes");
         assert!(!legacy.has_event_queries);
@@ -663,8 +703,15 @@ mod tests {
             legacy.event_query_summary,
             EventLogRpcQueryBatchSummary::default()
         );
+        assert!(!legacy.has_first_event_from_block);
+        assert!(!legacy.has_last_event_to_block);
         assert!(!legacy.has_maintenance_transactions);
+        assert!(!legacy.has_maintenance_calldata);
         assert!(!legacy.has_liquidation_scan);
+        assert!(legacy
+            .maintenance_transactions
+            .iter()
+            .all(|transaction| !transaction.has_selector && !transaction.has_calldata));
     }
 
     #[test]
