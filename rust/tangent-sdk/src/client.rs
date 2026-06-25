@@ -150,7 +150,11 @@ pub struct TangentClientStartupReport {
     pub has_multiple_signer_backend_kinds: bool,
     pub perp_stack: PerpStackAvailability,
     pub missing_perp_contracts: Vec<String>,
+    #[serde(default)]
+    pub has_missing_perp_contracts: bool,
     pub keeper_capabilities: Vec<KeeperCapability>,
+    #[serde(default)]
+    pub has_keeper_capabilities: bool,
     pub readiness: TangentClientStartupReadiness,
     pub policies: TangentClientPolicies,
 }
@@ -165,6 +169,8 @@ pub struct TangentClientStartupReadiness {
     pub full_perp_stack: bool,
     pub keeper_polling: bool,
     pub blocking_reasons: Vec<String>,
+    #[serde(default)]
+    pub has_blocking_reasons: bool,
 }
 
 /// Transport-neutral client facade over a caller-provided JSON-RPC transport.
@@ -680,6 +686,7 @@ impl TangentClientStartupReadiness {
             liquidation_reads,
             full_perp_stack,
             keeper_polling,
+            has_blocking_reasons: !blocking_reasons.is_empty(),
             blocking_reasons,
         }
     }
@@ -1514,6 +1521,11 @@ impl TangentClientPlan {
             }
         }
         let endpoint_report = self.config.endpoint.report();
+        let missing_perp_contracts = perp_stack
+            .missing_contracts()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
 
         TangentClientStartupReport {
             project: manifest.project.clone(),
@@ -1532,11 +1544,9 @@ impl TangentClientPlan {
             has_multiple_signer_backend_kinds: signer_backend_kinds.len() > 1,
             signer_backend_kinds,
             perp_stack,
-            missing_perp_contracts: perp_stack
-                .missing_contracts()
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
+            has_missing_perp_contracts: !missing_perp_contracts.is_empty(),
+            missing_perp_contracts,
+            has_keeper_capabilities: !keeper_capabilities.is_empty(),
             keeper_capabilities: keeper_capabilities.clone(),
             readiness: TangentClientStartupReadiness::from_parts(
                 chain_id_matches_manifest,
@@ -3103,10 +3113,12 @@ mod tests {
             current_report.missing_perp_contracts,
             vec!["OrderBook", "SettlementEngine", "LiquidationKeeper"]
         );
+        assert!(current_report.has_missing_perp_contracts);
         assert_eq!(
             current_report.keeper_capabilities,
             vec![KeeperCapability::EventIndexing]
         );
+        assert!(current_report.has_keeper_capabilities);
         assert!(current_report.readiness.primitive_reads);
         assert!(current_report.readiness.keeper_polling);
         assert!(!current_report.readiness.orderbook_workflows);
@@ -3121,6 +3133,7 @@ mod tests {
                 "missing LiquidationKeeper"
             ]
         );
+        assert!(current_report.readiness.has_blocking_reasons);
 
         let mismatch_report = TangentClientPlan {
             context: TangentContext::new(current_manifest()),
@@ -3133,6 +3146,7 @@ mod tests {
         .startup_report();
         assert!(!mismatch_report.readiness.primitive_reads);
         assert!(!mismatch_report.readiness.keeper_polling);
+        assert!(mismatch_report.readiness.has_blocking_reasons);
         assert!(mismatch_report
             .readiness
             .blocking_reasons
@@ -3193,6 +3207,7 @@ mod tests {
         assert!(report.has_multiple_signer_backend_kinds);
         assert!(report.perp_stack.is_complete());
         assert!(report.missing_perp_contracts.is_empty());
+        assert!(!report.has_missing_perp_contracts);
         assert_eq!(
             report.keeper_capabilities,
             vec![
@@ -3203,6 +3218,7 @@ mod tests {
                 KeeperCapability::FullPerpStack,
             ]
         );
+        assert!(report.has_keeper_capabilities);
         assert_eq!(report.policies, TangentClientPolicies::default());
         assert!(report.readiness.primitive_reads);
         assert!(report.readiness.orderbook_workflows);
@@ -3211,8 +3227,11 @@ mod tests {
         assert!(report.readiness.full_perp_stack);
         assert!(report.readiness.keeper_polling);
         assert!(report.readiness.blocking_reasons.is_empty());
+        assert!(!report.readiness.has_blocking_reasons);
 
         let json = serde_json::to_string(&report).expect("report serializes");
+        assert!(json.contains("\"has_keeper_capabilities\":true"));
+        assert!(json.contains("\"has_missing_perp_contracts\":false"));
         let restored: TangentClientStartupReport =
             serde_json::from_str(&json).expect("report deserializes");
         assert_eq!(restored, report);
@@ -3222,12 +3241,22 @@ mod tests {
         legacy_object.remove("has_static_rpc_auth_header");
         legacy_object.remove("has_signer_backends");
         legacy_object.remove("has_multiple_signer_backend_kinds");
+        legacy_object.remove("has_missing_perp_contracts");
+        legacy_object.remove("has_keeper_capabilities");
+        legacy_object
+            .get_mut("readiness")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("readiness object")
+            .remove("has_blocking_reasons");
         let legacy_report: TangentClientStartupReport =
             serde_json::from_value(legacy_json).expect("legacy startup report deserializes");
         assert_eq!(legacy_report.static_rpc_auth_headers, 0);
         assert!(!legacy_report.has_static_rpc_auth_header);
         assert!(!legacy_report.has_signer_backends);
         assert!(!legacy_report.has_multiple_signer_backend_kinds);
+        assert!(!legacy_report.has_missing_perp_contracts);
+        assert!(!legacy_report.has_keeper_capabilities);
+        assert!(!legacy_report.readiness.has_blocking_reasons);
 
         assert_eq!(support_report.startup, report);
         assert_eq!(support_report.config, plan.config.report());
