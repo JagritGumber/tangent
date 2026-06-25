@@ -57,7 +57,11 @@ pub struct UnsignedCallQuery {
 pub struct UnsignedCallSummary {
     pub to: Address,
     pub selector: Option<String>,
+    #[serde(default)]
+    pub has_selector: bool,
     pub calldata_bytes: usize,
+    #[serde(default)]
+    pub has_calldata: bool,
 }
 
 /// Per-contract call count inside a read-only call batch.
@@ -693,10 +697,14 @@ impl UnsignedCall {
     /// Return a compact serializable review shape for this call.
     #[must_use]
     pub fn summary(&self) -> UnsignedCallSummary {
+        let selector = self.selector_hex();
+        let calldata_bytes = self.data_len();
         UnsignedCallSummary {
             to: self.to,
-            selector: self.selector_hex(),
-            calldata_bytes: self.data_len(),
+            has_selector: selector.is_some(),
+            selector,
+            calldata_bytes,
+            has_calldata: calldata_bytes > 0,
         }
     }
 
@@ -2318,7 +2326,9 @@ mod tests {
             UnsignedCallSummary {
                 to: Address::ZERO,
                 selector: Some("0x12345678".to_owned()),
+                has_selector: true,
                 calldata_bytes: 5,
+                has_calldata: true,
             }
         );
         assert_eq!(
@@ -2386,20 +2396,42 @@ mod tests {
         assert_eq!(batch.contracts[0].calls, 1);
         assert_eq!(batch.contracts[1].calls, 1);
         assert_eq!(batch.calls[0].selector.as_deref(), Some("0x12345678"));
+        assert!(batch.calls[0].has_selector);
+        assert!(batch.calls[0].has_calldata);
         assert_eq!(batch.calls[1].selector, None);
+        assert!(!batch.calls[1].has_selector);
+        assert!(batch.calls[1].has_calldata);
         let json = serde_json::to_string(&batch).expect("call batch summary serializes");
         assert!(json.contains("\"has_calls\":true"));
         assert!(json.contains("\"has_multiple_contracts\":true"));
+        assert!(json.contains("\"has_selector\":true"));
+        assert!(json.contains("\"has_calldata\":true"));
         let restored: UnsignedCallBatchSummary =
             serde_json::from_str(&json).expect("call batch summary deserializes");
         assert_eq!(restored, batch);
-        let legacy_json = json
-            .replace("\"has_calls\":true,", "")
-            .replace("\"has_multiple_contracts\":true,", "");
+        let mut legacy_json = serde_json::to_value(&batch).expect("call batch summary value");
+        let legacy_object = legacy_json
+            .as_object_mut()
+            .expect("call batch summary object");
+        legacy_object.remove("has_calls");
+        legacy_object.remove("has_multiple_contracts");
+        let legacy_calls = legacy_object
+            .get_mut("calls")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("call batch summary calls");
+        for call in legacy_calls {
+            let call_object = call.as_object_mut().expect("call summary object");
+            call_object.remove("has_selector");
+            call_object.remove("has_calldata");
+        }
         let legacy: UnsignedCallBatchSummary =
-            serde_json::from_str(&legacy_json).expect("legacy call batch summary deserializes");
+            serde_json::from_value(legacy_json).expect("legacy call batch summary deserializes");
         assert!(!legacy.has_calls);
         assert!(!legacy.has_multiple_contracts);
+        assert!(legacy
+            .calls
+            .iter()
+            .all(|call| !call.has_selector && !call.has_calldata));
         let empty_batch = UnsignedCall::summarize_batch(std::iter::empty::<&UnsignedCall>());
         assert_eq!(empty_batch.len, 0);
         assert!(empty_batch.is_empty);
