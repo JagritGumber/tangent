@@ -80,8 +80,11 @@ pub struct MarketStatusSummary {
     pub mark_price: u128,
     #[serde(default)]
     pub has_mark_price: bool,
+    #[serde(default)]
     pub has_market_metadata: bool,
+    #[serde(default)]
     pub is_known_market: bool,
+    #[serde(default)]
     pub is_tradable_market: bool,
     #[serde(default)]
     pub has_order_constraints: bool,
@@ -505,10 +508,16 @@ mod tests {
         let mut legacy_json = serde_json::to_value(&status_summary).expect("status summary value");
         let legacy_object = legacy_json.as_object_mut().expect("status summary object");
         legacy_object.remove("has_mark_price");
+        legacy_object.remove("has_market_metadata");
+        legacy_object.remove("is_known_market");
+        legacy_object.remove("is_tradable_market");
         legacy_object.remove("has_order_constraints");
         let legacy: MarketStatusSummary =
             serde_json::from_value(legacy_json).expect("legacy status summary");
         assert!(!legacy.has_mark_price);
+        assert!(!legacy.has_market_metadata);
+        assert!(!legacy.is_known_market);
+        assert!(!legacy.is_tradable_market);
         assert!(!legacy.has_order_constraints);
     }
 
